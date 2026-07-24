@@ -81,10 +81,12 @@ export function useNeteaseAuth() {
     clearPoll()
     setStatus('logging-in')
     setError(null)
+    setQrSession(null)
     try {
       const uniKey = await neteaseApi.createQrKey()
       const qrUrl = await neteaseApi.getQrLoginUrl(uniKey)
       setQrSession({ uniKey, qrUrl })
+      // Keep logging-in while waiting for scan; QR is already visible.
 
       pollRef.current = window.setInterval(async () => {
         try {
@@ -107,6 +109,8 @@ export function useNeteaseAuth() {
         }
       }, 1500)
     } catch (e) {
+      clearPoll()
+      setQrSession(null)
       setError(e instanceof Error ? e.message : '无法发起扫码登录')
       setStatus('auth-error')
     }
@@ -136,17 +140,21 @@ export function useNeteaseAuth() {
       try {
         const store = await getStore()
         const saved = await store.get<string>(COOKIE_KEY)
-        if (saved) {
-          setStatus('logging-in')
-          await applyAuthenticated(saved)
-        }
-      } catch {
-        // no saved session
+        if (!saved) return
+        setStatus('logging-in')
+        await applyAuthenticated(saved)
+      } catch (e) {
+        neteaseApi.clearSession()
+        await clearPersisted()
+        setProfile(null)
+        setQrSession(null)
+        setStatus('anonymous')
+        setError(e instanceof Error ? e.message : '本地登录态已失效，请重新登录')
       }
     })()
 
     return () => clearPoll()
-  }, [applyAuthenticated, clearPoll])
+  }, [applyAuthenticated, clearPersisted, clearPoll])
 
   return {
     status,

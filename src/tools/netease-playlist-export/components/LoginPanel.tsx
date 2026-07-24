@@ -102,7 +102,7 @@ export function LoginPanel({
                   {busy ? (
                     <span className="inline-flex items-center gap-2">
                       <FontAwesomeIcon icon={faSpinner} className="h-3 w-3 animate-spin" />
-                      生成中
+                      生成中…
                     </span>
                   ) : (
                     '点击生成二维码'
@@ -112,11 +112,13 @@ export function LoginPanel({
             </div>
             <div className="space-y-3">
               <p className="text-xs leading-relaxed text-muted">
-                使用网易云 App 扫码并确认登录。二维码过期后可重新生成。
+                {qrSession
+                  ? '请使用网易云 App 扫码并确认登录。'
+                  : '使用网易云 App 扫码并确认登录。二维码过期后可重新生成。'}
               </p>
               <button
                 type="button"
-                disabled={busy}
+                disabled={busy && !qrSession}
                 onClick={onStartQr}
                 className="inline-flex items-center gap-2 rounded-xl bg-accent px-3.5 py-2 text-xs font-medium text-accent-fg transition-all duration-200 ease-in-out hover:opacity-90 disabled:opacity-50"
               >
@@ -125,7 +127,7 @@ export function LoginPanel({
                 ) : (
                   <FontAwesomeIcon icon={faQrcode} className="h-3 w-3" />
                 )}
-                {qrSession ? '刷新二维码' : '开始扫码登录'}
+                {busy && !qrSession ? '生成中…' : qrSession ? '刷新二维码' : '开始扫码登录'}
               </button>
             </div>
           </div>
