@@ -25,9 +25,9 @@ export const darkZincTheme: ThemeTokens = {
   subtle: '#71717a',
   accent: '#d4d4d8',
   accentFg: '#09090b',
-  danger: '#fca5a5',
+  danger: '#f87171',
   dangerFg: '#450a0a',
-  success: '#86efac',
+  success: '#4ade80',
 }
 
 export type ThemeName = 'dark-zinc'

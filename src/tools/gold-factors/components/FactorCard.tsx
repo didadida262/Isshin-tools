@@ -4,6 +4,8 @@ import type { FactorMetric } from '../types'
 import {
   cadenceLabel,
   changeAbs,
+  deltaBaselineLabel,
+  deltaToneClass,
   formatAsOf,
   formatDelta,
   formatValue,
@@ -14,7 +16,6 @@ interface FactorCardProps {
 }
 
 export function FactorCard({ metric }: FactorCardProps) {
-  const isCb = metric.id === 'cb-gold'
   const delta = changeAbs(metric.value, metric.previousValue)
 
   return (
@@ -34,22 +35,17 @@ export function FactorCard({ metric }: FactorCardProps) {
 
       {metric.error ? (
         <p className="text-xs text-danger">{metric.error}</p>
-      ) : isCb ? (
-        <div className="space-y-1">
-          <p className="font-display text-2xl font-semibold tracking-tight text-subtle">非实时</p>
-          <p className="text-[11px] leading-relaxed text-muted">
-            跟踪 WGC 月度央行购金；本工具不伪造实时序列。
-          </p>
-        </div>
       ) : (
         <div className="space-y-1">
           <p className="font-display text-2xl font-semibold tracking-tight text-foreground tabular-nums">
             {formatValue(metric.value, metric.unit)}
           </p>
-          <p className="flex items-center gap-1 text-[11px] tabular-nums text-muted">
+          <p
+            className={`flex items-center gap-1 text-[11px] font-medium tabular-nums ${deltaToneClass(delta)}`}
+          >
             <DeltaMark delta={delta} />
             <span>
-              {metric.cadence === 'realtime' ? '较上次刷新 ' : '较前值 '}
+              {deltaBaselineLabel(metric)}{' '}
               {formatDelta(metric.value, metric.previousValue, metric.unit)}
             </span>
           </p>
@@ -71,7 +67,7 @@ function DeltaMark({ delta }: { delta: number | null }) {
   return (
     <FontAwesomeIcon
       icon={delta > 0 ? faCaretUp : faCaretDown}
-      className="h-2.5 w-2.5 text-subtle"
+      className="h-2.5 w-2.5"
       aria-hidden
     />
   )

@@ -28,7 +28,9 @@
         { "url": "https://home.treasury.gov/**" },
         { "url": "https://hq.sinajs.cn/**" },
         { "url": "https://push2.eastmoney.com/**" },
-        { "url": "https://push2delay.eastmoney.com/**" }
+        { "url": "https://push2delay.eastmoney.com/**" },
+        { "url": "https://www.gold.org/**" },
+        { "url": "https://gold.org/**" }
       ]
     },
     "opener:default"

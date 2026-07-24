@@ -1,0 +1,10 @@
+# Dependencies & build (keep Cursor index lean)
+node_modules/
+dist/
+src-tauri/target/
+src-tauri/gen/
+
+# Lock / generated noise
+*.log
+.vite/
+coverage/

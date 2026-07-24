@@ -10,6 +10,12 @@ export function changeAbs(current: number | null, previous: number | null): numb
   return current - previous
 }
 
+/** Green = up, red = down (standard market convention). */
+export function deltaToneClass(delta: number | null): string {
+  if (delta === null || Math.abs(delta) < 1e-9) return 'text-muted'
+  return delta > 0 ? 'text-success' : 'text-danger'
+}
+
 export function inferGoldBias(metric: FactorMetric): GoldBias {
   if (metric.id === 'cb-gold' && metric.value === null) return 'neutral'
   if (metric.value === null || metric.error) return 'neutral'
@@ -25,15 +31,15 @@ export function inferGoldBias(metric: FactorMetric): GoldBias {
 
 export function formatValue(value: number | null, unit: string): string {
   if (value === null) return '—'
-  if (unit === '%') return `${value.toFixed(2)}%`
+  if (unit === '%') return `${value.toFixed(2)} %`
   if (unit === 'USD/oz') {
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: 'USD',
+    const amount = new Intl.NumberFormat('en-US', {
+      minimumFractionDigits: 2,
       maximumFractionDigits: 2,
     }).format(value)
+    return `$ ${amount}`
   }
-  if (unit === 't') return '—'
+  if (unit === 't') return `${value.toFixed(0)} t`
   return value.toFixed(2)
 }
 
@@ -44,13 +50,22 @@ export function formatDelta(
 ): string {
   const abs = changeAbs(current, previous)
   const pct = changePct(current, previous)
-  if (abs === null) return '较前值 —'
+  if (abs === null) return '—'
 
   const sign = abs > 0 ? '+' : ''
   if (unit === '%') return `${sign}${abs.toFixed(2)} pts`
-  if (unit === 'USD/oz' && pct !== null) return `${sign}${abs.toFixed(2)} (${sign}${pct.toFixed(2)}%)`
-  if (pct !== null) return `${sign}${abs.toFixed(2)} (${sign}${pct.toFixed(2)}%)`
+  if (unit === 't') return `${sign}${abs.toFixed(0)} t`
+  if (unit === 'USD/oz' && pct !== null) {
+    return `${sign}${abs.toFixed(2)} (${sign}${pct.toFixed(2)} %)`
+  }
+  if (pct !== null) return `${sign}${abs.toFixed(2)} (${sign}${pct.toFixed(2)} %)`
   return `${sign}${abs.toFixed(2)}`
+}
+
+export function deltaBaselineLabel(metric: FactorMetric): string {
+  if (metric.cadence !== 'realtime') return '较前值'
+  if (metric.unit === 'USD/oz') return '较昨结'
+  return '较昨收'
 }
 
 export function cadenceLabel(cadence: FactorMetric['cadence']): string {

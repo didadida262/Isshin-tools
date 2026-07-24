@@ -13,32 +13,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null
 }
 
-const SESSION_PREV_KEY = 'isshin.gold-factors.prev'
-
-function readSessionPrev(): Record<string, number> {
-  try {
-    const raw = sessionStorage.getItem(SESSION_PREV_KEY)
-    if (!raw) return {}
-    const parsed: unknown = JSON.parse(raw)
-    if (!isRecord(parsed)) return {}
-    const out: Record<string, number> = {}
-    for (const [k, v] of Object.entries(parsed)) {
-      if (typeof v === 'number' && Number.isFinite(v)) out[k] = v
-    }
-    return out
-  } catch {
-    return {}
-  }
-}
-
-function writeSessionPrev(values: Record<string, number>) {
-  try {
-    sessionStorage.setItem(SESSION_PREV_KEY, JSON.stringify(values))
-  } catch {
-    // ignore
-  }
-}
-
 function metricBase(
   partial: Omit<FactorMetric, 'value' | 'previousValue' | 'asOf' | 'error'> & {
     value?: number | null
@@ -61,6 +35,12 @@ function metricBase(
     source: partial.source,
     goldFriendlyWhen: partial.goldFriendlyWhen,
   }
+}
+
+function extractSinaQuoted(raw: string, key: string): string {
+  const match = raw.match(new RegExp(`hq_str_${key}="([^"]*)"`))
+  if (!match?.[1]?.trim()) throw new Error(`新浪行情为空 · ${key}`)
+  return match[1]
 }
 
 /** Parse US Treasury `yield.xml` / `real_yield.xml` curve snapshots. */
@@ -128,9 +108,7 @@ export function parseSinaDiniw(raw: string): {
   previous: number | null
   asOf: string
 } {
-  const match = raw.match(/hq_str_DINIW="([^"]*)"/)
-  if (!match?.[1]) throw new Error('新浪美元指数行情为空')
-  const parts = match[1].split(',')
+  const parts = extractSinaQuoted(raw, 'DINIW').split(',')
   const value = Number(parts[1])
   const previous = Number(parts[3])
   const time = parts[0] ?? ''
@@ -143,34 +121,126 @@ export function parseSinaDiniw(raw: string): {
   }
 }
 
-async function fetchSpotGold(sessionPrev: number | undefined): Promise<FactorMetric> {
+/** Sina futures/spot gold `hf_XAU`. */
+export function parseSinaHfXau(raw: string): {
+  value: number
+  previous: number | null
+  asOf: string
+} {
+  const parts = extractSinaQuoted(raw, 'hf_XAU').split(',')
+  const value = Number(parts[0])
+  const previous = Number(parts[7])
+  const time = parts[6] ?? ''
+  const date = parts[12] ?? ''
+  if (!Number.isFinite(value)) throw new Error('新浪金价解析失败')
+  return {
+    value,
+    previous: Number.isFinite(previous) ? previous : null,
+    asOf: `${date} ${time}`.trim(),
+  }
+}
+
+/** Sina US stock `gb_*` quote (e.g. gb_vixy). */
+export function parseSinaGbStock(raw: string, key: string): {
+  value: number
+  previous: number | null
+  asOf: string
+} {
+  const parts = extractSinaQuoted(raw, key).split(',')
+  const value = Number(parts[1])
+  const changeAbs = Number(parts[4])
+  const asOf = parts[3] ?? ''
+  if (!Number.isFinite(value)) throw new Error(`新浪 ${key} 解析失败`)
+  const previous = Number.isFinite(changeAbs) ? value - changeAbs : null
+  return {
+    value,
+    previous: previous !== null && Number.isFinite(previous) ? previous : null,
+    asOf,
+  }
+}
+
+export function parseWgcCentralBankNetTonnes(html: string): {
+  value: number
+  periodLabel: string
+} | null {
+  // Prefer the last match — teaser/meta often lags the corrected body figure.
+  const increased = [...html.matchAll(/increased by a net\s+(\d+(?:\.\d+)?)\s*t/gi)]
+  const bought = [
+    ...html.matchAll(/net gold purchases[^.]{0,120}?having bought\s+(\d+(?:\.\d+)?)\s*t/gi),
+  ]
+  const sales = [...html.matchAll(/net sales[^.]{0,40}?(\d+(?:\.\d+)?)\s*t/gi)]
+
+  let value: number | null = null
+  if (increased.length > 0) value = Number(increased[increased.length - 1]![1])
+  else if (bought.length > 0) value = Number(bought[bought.length - 1]![1])
+  else if (sales.length > 0) value = -Number(sales[sales.length - 1]![1])
+
+  if (value === null || !Number.isFinite(value)) return null
+
+  const month = html.match(
+    /\bin (January|February|March|April|May|June|July|August|September|October|November|December)\b/i,
+  )
+  return {
+    value,
+    periodLabel: month?.[1] ?? 'latest',
+  }
+}
+
+const MONTH_NUM: Record<string, string> = {
+  january: '01',
+  february: '02',
+  march: '03',
+  april: '04',
+  may: '05',
+  june: '06',
+  july: '07',
+  august: '08',
+  september: '09',
+  october: '10',
+  november: '11',
+  december: '12',
+}
+
+async function fetchSpotGold(): Promise<FactorMetric> {
   const base = {
     id: 'xau-usd',
     label: '现货金价',
     shortLabel: 'XAU',
-    description: '无对手方计价锚 · 实时现货代理',
+    description: '无对手方计价锚 · 近实时现货代理',
     cadence: 'realtime' as const,
     unit: 'USD/oz',
-    source: 'gold-api.com',
+    source: '新浪财经 hf_XAU',
     goldFriendlyWhen: 'context' as const,
   }
 
   try {
-    const live = await httpGetJson<GoldApiPrice>('https://api.gold-api.com/price/XAU')
-    if (!isRecord(live) || typeof live.price !== 'number') {
-      throw new Error('金价响应无效')
+    const raw = await httpGetText('https://hq.sinajs.cn/list=hf_XAU')
+    const q = parseSinaHfXau(raw)
+    return metricBase({
+      ...base,
+      value: q.value,
+      previousValue: q.previous,
+      asOf: q.asOf,
+    })
+  } catch (primaryErr) {
+    try {
+      const live = await httpGetJson<GoldApiPrice>('https://api.gold-api.com/price/XAU')
+      if (!isRecord(live) || typeof live.price !== 'number') {
+        throw new Error('金价响应无效')
+      }
+      return metricBase({
+        ...base,
+        source: 'gold-api.com（新浪回退）',
+        value: live.price,
+        previousValue: null,
+        asOf: typeof live.updatedAt === 'string' ? live.updatedAt : new Date().toISOString(),
+      })
+    } catch {
+      return metricBase({
+        ...base,
+        error: errorMessage(primaryErr) || '金价拉取失败',
+      })
     }
-    return metricBase({
-      ...base,
-      value: live.price,
-      previousValue: sessionPrev ?? null,
-      asOf: typeof live.updatedAt === 'string' ? live.updatedAt : new Date().toISOString(),
-    })
-  } catch (e) {
-    return metricBase({
-      ...base,
-      error: errorMessage(e) || '金价拉取失败',
-    })
   }
 }
 
@@ -281,6 +351,51 @@ function buildBreakeven(
   })
 }
 
+async function fetchRiskProxyFromSina(): Promise<FactorMetric> {
+  const raw = await httpGetText('https://hq.sinajs.cn/list=gb_vixy')
+  const q = parseSinaGbStock(raw, 'gb_vixy')
+  return metricBase({
+    id: 'vix-proxy',
+    label: '风险偏好代理',
+    shortLabel: 'VIXY',
+    description: 'VIXY ETF · VIX 弱代理（非 VIX 现货指数）',
+    cadence: 'realtime',
+    unit: 'USD',
+    source: '新浪财经 gb_vixy',
+    goldFriendlyWhen: 'up',
+    value: q.value,
+    previousValue: q.previous,
+    asOf: q.asOf,
+  })
+}
+
+async function fetchRiskProxyFromEastmoney(): Promise<FactorMetric> {
+  const raw = await httpGetText(
+    'https://push2delay.eastmoney.com/api/qt/stock/get?secid=107.VIXY&fields=f43,f57,f58,f60,f169,f170',
+  )
+  const json: unknown = JSON.parse(raw)
+  if (!isRecord(json) || !isRecord(json.data)) {
+    throw new Error('VIXY 响应无效')
+  }
+  const data = json.data
+  const last = typeof data.f43 === 'number' ? data.f43 / 1000 : null
+  const prev = typeof data.f60 === 'number' ? data.f60 / 1000 : null
+  if (last === null) throw new Error('VIXY 无最新价')
+  return metricBase({
+    id: 'vix-proxy',
+    label: '风险偏好代理',
+    shortLabel: 'VIXY',
+    description: 'VIXY ETF · VIX 弱代理（非 VIX 现货指数）',
+    cadence: 'realtime',
+    unit: 'USD',
+    source: '东方财富 push2delay',
+    goldFriendlyWhen: 'up',
+    value: last,
+    previousValue: prev,
+    asOf: new Date().toISOString(),
+  })
+}
+
 async function fetchRiskProxy(): Promise<FactorMetric> {
   const base = {
     id: 'vix-proxy',
@@ -289,62 +404,95 @@ async function fetchRiskProxy(): Promise<FactorMetric> {
     description: 'VIXY ETF · VIX 弱代理（非 VIX 现货指数）',
     cadence: 'realtime' as const,
     unit: 'USD',
-    source: '东方财富 107.VIXY',
+    source: '新浪 / 东财',
     goldFriendlyWhen: 'up' as const,
   }
 
   try {
-    const raw = await httpGetText(
-      'https://push2.eastmoney.com/api/qt/stock/get?secid=107.VIXY&fields=f43,f57,f58,f60,f169,f170',
-    )
-    const json: unknown = JSON.parse(raw)
-    if (!isRecord(json) || !isRecord(json.data)) {
-      throw new Error('VIXY 响应无效')
+    return await fetchRiskProxyFromSina()
+  } catch (primaryErr) {
+    try {
+      return await fetchRiskProxyFromEastmoney()
+    } catch {
+      return metricBase({
+        ...base,
+        error: errorMessage(primaryErr) || '风险代理拉取失败',
+      })
     }
-    const data = json.data
-    // Eastmoney stores prices * 1000 for US stocks often (f43=21780 => 21.780)
-    const last = typeof data.f43 === 'number' ? data.f43 / 1000 : null
-    const prev = typeof data.f60 === 'number' ? data.f60 / 1000 : null
-    if (last === null) throw new Error('VIXY 无最新价')
+  }
+}
+
+async function fetchCentralBankGold(): Promise<FactorMetric> {
+  const base = {
+    id: 'cb-gold',
+    label: '央行净购金',
+    shortLabel: 'CB',
+    description: '官方储备月度净变动 · WGC 月报（滞后约 1–2 月）',
+    cadence: 'monthly' as const,
+    unit: 't',
+    source: 'World Gold Council',
+    goldFriendlyWhen: 'up' as const,
+  }
+
+  try {
+    const listing = await httpGetText('https://www.gold.org/goldhub/gold-focus')
+    const links = [
+      ...listing.matchAll(
+        /href="(\/goldhub\/gold-focus\/\d{4}\/\d{2}\/central-bank-gold-statistics[^"]*)"/g,
+      ),
+    ].map((m) => m[1]!)
+
+    const unique = [...new Set(links)].slice(0, 2)
+    if (unique.length === 0) throw new Error('未找到 WGC 央行购金月报')
+
+    const articles = await Promise.all(
+      unique.map(async (path) => {
+        const html = await httpGetText(`https://www.gold.org${path}`)
+        const parsed = parseWgcCentralBankNetTonnes(html)
+        if (!parsed) return null
+        const yearMatch = path.match(/\/(\d{4})\/(\d{2})\//)
+        const pubYear = yearMatch ? Number(yearMatch[1]) : NaN
+        const pubMonth = yearMatch ? Number(yearMatch[2]) : NaN
+        const mm = MONTH_NUM[parsed.periodLabel.toLowerCase()]
+        let asOf = parsed.periodLabel
+        if (mm && Number.isFinite(pubYear)) {
+          let year = pubYear
+          const dataMonth = Number(mm)
+          if (Number.isFinite(pubMonth) && dataMonth > pubMonth) year -= 1
+          asOf = `${year}-${mm}`
+        }
+        return { ...parsed, asOf, path }
+      }),
+    )
+
+    const [current, previous] = articles
+    if (!current) throw new Error('WGC 月报解析失败')
+
+    // If publish year rolled past Dec for a May article published in July, year is fine.
+    // When period month is late in year but URL is next year Jan, clamp is acceptable for display.
     return metricBase({
       ...base,
-      value: last,
-      previousValue: prev,
-      asOf: new Date().toISOString(),
+      description: `官方储备月度净变动 · ${current.periodLabel}（WGC，滞后发布）`,
+      value: current.value,
+      previousValue: previous?.value ?? null,
+      asOf: current.asOf,
+      source: 'WGC Gold Focus',
     })
   } catch (e) {
     return metricBase({
       ...base,
-      error: errorMessage(e) || '风险代理拉取失败',
+      error: errorMessage(e) || '央行购金拉取失败',
     })
   }
 }
 
-function centralBankPlaceholder(): FactorMetric {
-  return metricBase({
-    id: 'cb-gold',
-    label: '央行净购金',
-    shortLabel: 'CB',
-    description: '官方储备需求 · WGC 月报级，无法稳定实时抓取',
-    cadence: 'monthly',
-    unit: 't',
-    source: 'World Gold Council（手动跟踪）',
-    goldFriendlyWhen: 'up',
-    value: null,
-    previousValue: null,
-    asOf: null,
-  })
-}
-
 /**
- * Uses China-reachable sources (Treasury XML + Sina + gold-api).
+ * Uses China-reachable sources (Treasury XML + Sina + WGC).
  * FRED is intentionally not primary — often blocked / HTTP2-unstable.
  */
 export async function fetchGoldFactorsSnapshot(): Promise<GoldFactorsSnapshot> {
-  const sessionPrev = readSessionPrev()
-
-  const [spotGold, dxy, nominal10y, realYield, risk] = await Promise.all([
-    fetchSpotGold(sessionPrev['xau-usd']),
+  const [spotGold, dxy, nominal10y, realYield, risk, cbGold] = await Promise.all([
+    fetchSpotGold(),
     fetchDxy(),
     fetchTreasuryMetric({
       id: 'nominal-10y',
@@ -369,28 +517,35 @@ export async function fetchGoldFactorsSnapshot(): Promise<GoldFactorsSnapshot> {
       goldFriendlyWhen: 'down',
     }),
     fetchRiskProxy(),
+    fetchCentralBankGold(),
   ])
 
   const breakeven = buildBreakeven(nominal10y, realYield)
 
-  const nextPrev: Record<string, number> = { ...sessionPrev }
-  if (spotGold.value !== null) nextPrev['xau-usd'] = spotGold.value
-  writeSessionPrev(nextPrev)
-
-  const metrics: FactorMetric[] = [
-    spotGold,
-    realYield,
-    dxy,
-    breakeven,
-    nominal10y,
-    risk,
-    centralBankPlaceholder(),
-  ]
-
   return {
     fetchedAt: new Date().toISOString(),
-    metrics,
+    metrics: [spotGold, realYield, dxy, breakeven, nominal10y, risk, cbGold],
     spotGold: spotGold.value !== null ? spotGold : null,
+  }
+}
+
+/** Fast path: only Sina-backed near-realtime quotes (safe for sub-second polling). */
+export async function fetchRealtimeGoldFactors(): Promise<{
+  fetchedAt: string
+  spotGold: FactorMetric
+  dxy: FactorMetric
+  risk: FactorMetric
+}> {
+  const [spotGold, dxy, risk] = await Promise.all([
+    fetchSpotGold(),
+    fetchDxy(),
+    fetchRiskProxy(),
+  ])
+  return {
+    fetchedAt: new Date().toISOString(),
+    spotGold,
+    dxy,
+    risk,
   }
 }
 

@@ -1,6 +1,6 @@
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
-import { faRotateRight } from '@fortawesome/free-solid-svg-icons'
-import { formatAsOf, formatDelta, formatValue } from '../lib/format'
+import { faCaretDown, faCaretUp } from '@fortawesome/free-solid-svg-icons'
+import { changeAbs, deltaToneClass, formatAsOf, formatDelta, formatValue } from '../lib/format'
 import type { FactorMetric } from '../types'
 import { Skeleton } from '@/components/Skeleton'
 
@@ -34,6 +34,8 @@ export function SpotHero({ metric, loading, fetchedAt }: SpotHeroProps) {
     )
   }
 
+  const delta = changeAbs(metric.value, metric.previousValue)
+
   return (
     <div className="relative overflow-hidden rounded-2xl border border-border-subtle bg-surface/70 p-5 shadow-sm md:p-6">
       <div
@@ -52,8 +54,13 @@ export function SpotHero({ metric, loading, fetchedAt }: SpotHeroProps) {
           <p className="mt-2 font-display text-4xl font-semibold tracking-tight text-foreground tabular-nums md:text-5xl">
             {formatValue(metric.value, metric.unit)}
           </p>
-          <p className="mt-2 text-xs tabular-nums text-muted">
-            较上次刷新 {formatDelta(metric.value, metric.previousValue, metric.unit)}
+          <p
+            className={`mt-2 flex items-center gap-1.5 text-sm font-medium tabular-nums ${deltaToneClass(delta)}`}
+          >
+            <SpotDeltaMark delta={delta} />
+            <span>
+              较昨结 {formatDelta(metric.value, metric.previousValue, metric.unit)}
+            </span>
           </p>
         </div>
         <div className="text-left text-[11px] text-subtle sm:text-right">
@@ -66,43 +73,15 @@ export function SpotHero({ metric, loading, fetchedAt }: SpotHeroProps) {
   )
 }
 
-interface RefreshBarProps {
-  autoRefresh: boolean
-  onAutoRefreshChange: (value: boolean) => void
-  refreshing: boolean
-  onRefresh: () => void
-}
-
-export function RefreshBar({
-  autoRefresh,
-  onAutoRefreshChange,
-  refreshing,
-  onRefresh,
-}: RefreshBarProps) {
+function SpotDeltaMark({ delta }: { delta: number | null }) {
+  if (delta === null || Math.abs(delta) < 1e-9) {
+    return <span className="inline-block w-3" aria-hidden />
+  }
   return (
-    <div className="flex flex-wrap items-center gap-3">
-      <button
-        type="button"
-        onClick={onRefresh}
-        disabled={refreshing}
-        className="inline-flex items-center gap-2 rounded-xl border border-border bg-surface px-3 py-1.5 text-xs text-foreground transition-all duration-200 ease-in-out hover:border-muted hover:bg-surface-hover hover:shadow-sm disabled:opacity-50"
-      >
-        <FontAwesomeIcon
-          icon={faRotateRight}
-          className={`h-3 w-3 ${refreshing ? 'animate-spin' : ''}`}
-        />
-        {refreshing ? '刷新中' : '立即刷新'}
-      </button>
-
-      <label className="inline-flex cursor-pointer items-center gap-2 text-xs text-muted">
-        <input
-          type="checkbox"
-          checked={autoRefresh}
-          onChange={(e) => onAutoRefreshChange(e.target.checked)}
-          className="h-3.5 w-3.5 rounded border-border bg-background accent-[var(--accent)]"
-        />
-        自动刷新 · 60s
-      </label>
-    </div>
+    <FontAwesomeIcon
+      icon={delta > 0 ? faCaretUp : faCaretDown}
+      className="h-3.5 w-3.5"
+      aria-hidden
+    />
   )
 }

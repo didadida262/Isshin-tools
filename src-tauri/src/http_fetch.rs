@@ -14,6 +14,8 @@ const ALLOWED_HOSTS: &[&str] = &[
     "hq.sinajs.cn",
     "push2.eastmoney.com",
     "push2delay.eastmoney.com",
+    "www.gold.org",
+    "gold.org",
 ];
 
 fn host_allowed(host: &str) -> bool {
@@ -100,7 +102,11 @@ pub async fn http_get_text(url: String) -> Result<String, String> {
         return Err(format!("HTTP {status} · {snippet}"));
     }
 
-    if body.trim_start().starts_with("<!DOCTYPE") || body.trim_start().starts_with("<html") {
+    // gold.org articles are HTML by design; other hosts should return data payloads.
+    let allow_html = host.eq_ignore_ascii_case("www.gold.org") || host.eq_ignore_ascii_case("gold.org");
+    if !allow_html
+        && (body.trim_start().starts_with("<!DOCTYPE") || body.trim_start().starts_with("<html"))
+    {
         return Err("上游返回 HTML（可能被拦截），非预期数据".into());
     }
 
