@@ -14,13 +14,26 @@
 
 ```bash
 npm install
-npm run tauri:dev
+npm run desktop:dev
 ```
 
-仅前端预览（无网易云请求能力）：
+仅前端预览（无桌面桥接能力）：
 
 ```bash
 npm run dev
+```
+
+## 打包
+
+```bash
+# macOS Apple Silicon / 本机架构 → .app + .dmg
+npm run desktop:build:mac
+
+# macOS Intel
+npm run desktop:build:mac:intel
+
+# Windows → NSIS 安装包（需在 Windows 上执行）
+npm run desktop:build:win
 ```
 
 ## 说明

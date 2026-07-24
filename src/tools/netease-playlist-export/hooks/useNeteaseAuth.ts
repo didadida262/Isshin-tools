@@ -10,6 +10,33 @@ async function getStore() {
   return Store.load(STORE_PATH)
 }
 
+function formatAuthError(err: unknown, fallback: string): string {
+  let raw = fallback
+  if (err instanceof Error) raw = err.message
+  else if (typeof err === 'string') raw = err
+  else {
+    try {
+      raw = JSON.stringify(err) || fallback
+    } catch {
+      raw = fallback
+    }
+  }
+
+  const lower = raw.toLowerCase()
+  if (
+    lower.includes('timed out') ||
+    lower.includes('timeout') ||
+    lower.includes('deadline') ||
+    raw.includes('超时')
+  ) {
+    return `请求超时（10s）：${raw}`
+  }
+  if (lower.includes('error sending request') || lower.includes('http:')) {
+    return `网络错误：${raw}`
+  }
+  return raw || fallback
+}
+
 export function useNeteaseAuth() {
   const [status, setStatus] = useState<AuthStatus>('anonymous')
   const [profile, setProfile] = useState<NeteaseUserProfile | null>(null)
@@ -104,14 +131,14 @@ export function useNeteaseAuth() {
           }
         } catch (e) {
           clearPoll()
-          setError(e instanceof Error ? e.message : '扫码登录失败')
+          setError(formatAuthError(e, '扫码登录失败'))
           setStatus('auth-error')
         }
       }, 1500)
     } catch (e) {
       clearPoll()
       setQrSession(null)
-      setError(e instanceof Error ? e.message : '无法发起扫码登录')
+      setError(formatAuthError(e, '无法发起扫码登录'))
       setStatus('auth-error')
     }
   }, [applyAuthenticated, clearPoll])
@@ -124,7 +151,7 @@ export function useNeteaseAuth() {
       try {
         await applyAuthenticated(cookie)
       } catch (e) {
-        setError(e instanceof Error ? e.message : 'Cookie 登录失败')
+        setError(formatAuthError(e, 'Cookie 登录失败'))
         setStatus('auth-error')
         neteaseApi.clearSession()
       }
@@ -149,7 +176,7 @@ export function useNeteaseAuth() {
         setProfile(null)
         setQrSession(null)
         setStatus('anonymous')
-        setError(e instanceof Error ? e.message : '本地登录态已失效，请重新登录')
+        setError(formatAuthError(e, '本地登录态已失效，请重新登录'))
       }
     })()
 
