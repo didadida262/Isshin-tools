@@ -30,7 +30,9 @@
         { "url": "https://push2.eastmoney.com/**" },
         { "url": "https://push2delay.eastmoney.com/**" },
         { "url": "https://www.gold.org/**" },
-        { "url": "https://gold.org/**" }
+        { "url": "https://gold.org/**" },
+        { "url": "https://tradingeconomics.com/**" },
+        { "url": "https://www.tradingeconomics.com/**" }
       ]
     },
     "opener:default"

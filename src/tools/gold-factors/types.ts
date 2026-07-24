@@ -7,6 +7,13 @@ export interface FactorObservation {
   value: number
 }
 
+export interface FactorBreakdownSlice {
+  /** Display label, preferably localized */
+  label: string
+  /** Tonnes (positive = net buy contribution for pie) */
+  value: number
+}
+
 export interface FactorMetric {
   id: string
   label: string
@@ -21,6 +28,8 @@ export interface FactorMetric {
   /** Direction that is typically supportive for gold */
   goldFriendlyWhen: 'up' | 'down' | 'context'
   error?: string
+  /** Optional composition slices (e.g. CB monthly buyers) */
+  breakdown?: FactorBreakdownSlice[]
 }
 
 export interface GoldFactorsSnapshot {

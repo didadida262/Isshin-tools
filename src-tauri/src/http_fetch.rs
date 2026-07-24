@@ -16,6 +16,8 @@ const ALLOWED_HOSTS: &[&str] = &[
     "push2delay.eastmoney.com",
     "www.gold.org",
     "gold.org",
+    "tradingeconomics.com",
+    "www.tradingeconomics.com",
 ];
 
 fn host_allowed(host: &str) -> bool {
@@ -102,8 +104,11 @@ pub async fn http_get_text(url: String) -> Result<String, String> {
         return Err(format!("HTTP {status} · {snippet}"));
     }
 
-    // gold.org articles are HTML by design; other hosts should return data payloads.
-    let allow_html = host.eq_ignore_ascii_case("www.gold.org") || host.eq_ignore_ascii_case("gold.org");
+    // HTML pages scraped intentionally (WGC articles, Trading Economics tables).
+    let allow_html = host.eq_ignore_ascii_case("www.gold.org")
+        || host.eq_ignore_ascii_case("gold.org")
+        || host.eq_ignore_ascii_case("tradingeconomics.com")
+        || host.eq_ignore_ascii_case("www.tradingeconomics.com");
     if !allow_html
         && (body.trim_start().starts_with("<!DOCTYPE") || body.trim_start().starts_with("<html"))
     {

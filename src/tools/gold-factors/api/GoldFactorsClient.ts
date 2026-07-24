@@ -1,4 +1,9 @@
-import type { FactorObservation, FactorMetric, GoldFactorsSnapshot } from '../types'
+import type {
+  FactorBreakdownSlice,
+  FactorObservation,
+  FactorMetric,
+  GoldFactorsSnapshot,
+} from '../types'
 import { errorMessage, httpGetText, httpGetJson } from './http'
 
 interface GoldApiPrice {
@@ -14,11 +19,12 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function metricBase(
-  partial: Omit<FactorMetric, 'value' | 'previousValue' | 'asOf' | 'error'> & {
+  partial: Omit<FactorMetric, 'value' | 'previousValue' | 'asOf' | 'error' | 'breakdown'> & {
     value?: number | null
     previousValue?: number | null
     asOf?: string | null
     error?: string
+    breakdown?: FactorMetric['breakdown']
   },
 ): FactorMetric {
   return {
@@ -34,6 +40,7 @@ function metricBase(
     unit: partial.unit,
     source: partial.source,
     goldFriendlyWhen: partial.goldFriendlyWhen,
+    breakdown: partial.breakdown,
   }
 }
 
@@ -184,6 +191,80 @@ export function parseWgcCentralBankNetTonnes(html: string): {
     value,
     periodLabel: month?.[1] ?? 'latest',
   }
+}
+
+const BANK_COUNTRY_ZH: Array<{ match: RegExp; label: string }> = [
+  { match: /poland/i, label: '波兰' },
+  { match: /china|people.?s bank of china/i, label: '中国' },
+  { match: /uzbekistan/i, label: '乌兹别克斯坦' },
+  { match: /kazakhstan/i, label: '哈萨克斯坦' },
+  { match: /singapore/i, label: '新加坡' },
+  { match: /turkey/i, label: '土耳其' },
+  { match: /russia/i, label: '俄罗斯' },
+  { match: /india/i, label: '印度' },
+  { match: /czech/i, label: '捷克' },
+  { match: /qatar/i, label: '卡塔尔' },
+  { match: /hungary/i, label: '匈牙利' },
+  { match: /brazil/i, label: '巴西' },
+]
+
+const BUY_VERBS = 'added|bought|purchased|(?:having\\s+)?accumulated'
+const SELL_VERBS = 'sold|offloading|sold a net'
+
+function countryLabelFromBank(raw: string): string | null {
+  const text = raw.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()
+  for (const item of BANK_COUNTRY_ZH) {
+    if (item.match.test(text)) return item.label
+  }
+  return null
+}
+
+/**
+ * Extract monthly country-level official gold activity from a WGC Gold Focus article.
+ * Returns net-buyer slices for pie composition (sellers excluded).
+ */
+export function parseWgcCountryBuyers(html: string): FactorBreakdownSlice[] {
+  const buys = new Map<string, number>()
+  const sells = new Set<string>()
+
+  const strongRe = new RegExp(
+    `<strong>([^<]{2,90})</strong>[\\s\\S]{0,120}?(?:${BUY_VERBS}|${SELL_VERBS})\\s+(\\d+(?:\\.\\d+)?)\\s*t`,
+    'gi',
+  )
+  for (const m of html.matchAll(strongRe)) {
+    const bank = m[1] ?? ''
+    const tonnes = Number(m[2])
+    const label = countryLabelFromBank(bank)
+    if (!label || !Number.isFinite(tonnes) || tonnes <= 0) continue
+    const verb = m[0].toLowerCase()
+    const isSell = /sold|offloading/.test(verb)
+    if (isSell) {
+      sells.add(label)
+      continue
+    }
+    buys.set(label, Math.max(buys.get(label) ?? 0, tonnes))
+  }
+
+  // Summary paren form: "Poland (18t) and China (10t)" / sellers "Turkey (3t) and Russia (6t)"
+  for (const m of html.matchAll(
+    /\b(Poland|China|Turkey|Russia|India|Singapore|Uzbekistan|Kazakhstan)\s*\((\d+(?:\.\d+)?)\s*t\)/gi,
+  )) {
+    const label = countryLabelFromBank(m[1] ?? '')
+    const tonnes = Number(m[2])
+    if (!label || !Number.isFinite(tonnes) || tonnes <= 0) continue
+    const window = html.slice(Math.max(0, (m.index ?? 0) - 80), (m.index ?? 0) + 40).toLowerCase()
+    if (/seller|sold|sales|offloading/.test(window)) {
+      sells.add(label)
+      continue
+    }
+    if (!buys.has(label)) buys.set(label, tonnes)
+  }
+
+  for (const label of sells) buys.delete(label)
+
+  return [...buys.entries()]
+    .map(([label, value]) => ({ label, value }))
+    .sort((a, b) => b.value - a.value)
 }
 
 const MONTH_NUM: Record<string, string> = {
@@ -461,22 +542,26 @@ async function fetchCentralBankGold(): Promise<FactorMetric> {
           if (Number.isFinite(pubMonth) && dataMonth > pubMonth) year -= 1
           asOf = `${year}-${mm}`
         }
-        return { ...parsed, asOf, path }
+        return {
+          ...parsed,
+          asOf,
+          path,
+          breakdown: parseWgcCountryBuyers(html),
+        }
       }),
     )
 
     const [current, previous] = articles
     if (!current) throw new Error('WGC 月报解析失败')
 
-    // If publish year rolled past Dec for a May article published in July, year is fine.
-    // When period month is late in year but URL is next year Jan, clamp is acceptable for display.
     return metricBase({
       ...base,
-      description: `官方储备月度净变动 · ${current.periodLabel}（WGC，滞后发布）`,
+      description: `全球央行月度净购金 · ${current.periodLabel}（WGC，滞后发布）`,
       value: current.value,
       previousValue: previous?.value ?? null,
       asOf: current.asOf,
       source: 'WGC Gold Focus',
+      breakdown: current.breakdown.length > 0 ? current.breakdown : undefined,
     })
   } catch (e) {
     return metricBase({

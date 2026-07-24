@@ -13,6 +13,7 @@ import {
 } from '../lib/format'
 import { getFactorInfo } from '../lib/factorInfo'
 import { FactorInfoDialog } from './FactorInfoDialog'
+import { MiniPieChart } from './MiniPieChart'
 
 interface FactorCardProps {
   metric: FactorMetric
@@ -22,11 +23,12 @@ export function FactorCard({ metric }: FactorCardProps) {
   const [infoOpen, setInfoOpen] = useState(false)
   const delta = changeAbs(metric.value, metric.previousValue)
   const info = getFactorInfo(metric.id)
+  const showPie = metric.id === 'cb-gold' && (metric.breakdown?.length ?? 0) > 0
 
   return (
     <>
       <article
-        className="group relative flex flex-col gap-3 rounded-2xl border border-border-subtle bg-surface/60 p-4 shadow-sm transition-all duration-200 ease-in-out hover:border-border hover:shadow-md"
+        className="group relative flex h-full flex-col gap-3 rounded-2xl border border-border-subtle bg-surface/60 p-4 shadow-sm transition-all duration-200 ease-in-out hover:border-border hover:shadow-md"
         aria-label={metric.label}
       >
         {info && (
@@ -54,19 +56,28 @@ export function FactorCard({ metric }: FactorCardProps) {
         {metric.error ? (
           <p className="text-xs text-danger">{metric.error}</p>
         ) : (
-          <div className="space-y-1">
-            <p className="font-display text-2xl font-semibold tracking-tight text-foreground tabular-nums">
-              {formatValue(metric.value, metric.unit)}
-            </p>
-            <p
-              className={`flex items-center gap-1 text-[11px] font-medium tabular-nums ${deltaToneClass(delta)}`}
-            >
-              <DeltaMark delta={delta} />
-              <span>
-                {deltaBaselineLabel(metric)}{' '}
-                {formatDelta(metric.value, metric.previousValue, metric.unit)}
-              </span>
-            </p>
+          <div className="space-y-3">
+            <div className="space-y-1">
+              <p className="font-display text-2xl font-semibold tracking-tight text-foreground tabular-nums">
+                {formatValue(metric.value, metric.unit)}
+              </p>
+              <p
+                className={`flex items-center gap-1 text-[11px] font-medium tabular-nums ${deltaToneClass(delta)}`}
+              >
+                <DeltaMark delta={delta} />
+                <span>
+                  {deltaBaselineLabel(metric)}{' '}
+                  {formatDelta(metric.value, metric.previousValue, metric.unit)}
+                </span>
+              </p>
+            </div>
+
+            {showPie && metric.breakdown && (
+              <div className="rounded-xl border border-border-subtle/80 bg-background/30 p-2.5">
+                <p className="mb-2 text-[10px] tracking-wide text-subtle">当月主要净买入国构成</p>
+                <MiniPieChart slices={metric.breakdown} />
+              </div>
+            )}
           </div>
         )}
 
@@ -79,6 +90,7 @@ export function FactorCard({ metric }: FactorCardProps) {
       <FactorInfoDialog
         open={infoOpen}
         title={metric.label}
+        factorId={metric.id}
         content={info}
         onClose={() => setInfoOpen(false)}
       />
