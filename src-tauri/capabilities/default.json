@@ -1,0 +1,36 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Isshin Tools default capabilities",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "dialog:default",
+    "fs:default",
+    "fs:allow-write-text-file",
+    "fs:allow-mkdir",
+    {
+      "identifier": "fs:scope",
+      "allow": [{ "path": "**" }]
+    },
+    "store:default",
+    "http:default",
+    "allow-http-get-text",
+    {
+      "identifier": "http:allow-fetch",
+      "allow": [
+        { "url": "https://music.163.com/**" },
+        { "url": "https://*.music.163.com/**" },
+        { "url": "https://api.gold-api.com/**" },
+        { "url": "https://open.er-api.com/**" },
+        { "url": "https://fred.stlouisfed.org/**" },
+        { "url": "https://api.allorigins.win/**" },
+        { "url": "https://home.treasury.gov/**" },
+        { "url": "https://hq.sinajs.cn/**" },
+        { "url": "https://push2.eastmoney.com/**" },
+        { "url": "https://push2delay.eastmoney.com/**" }
+      ]
+    },
+    "opener:default"
+  ]
+}

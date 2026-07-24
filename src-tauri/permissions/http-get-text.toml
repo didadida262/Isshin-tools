@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "allow-http-get-text"
+description = "Allow desktop HTTP GET bridge for gold/macro data sources"
+commands.allow = ["http_get_text"]
