@@ -159,21 +159,59 @@ pub async fn weapi_request(
 
     let mut cookie_header = DEFAULT_COOKIE.to_string();
     if let Some(ref c) = cookie {
-        if !c.is_empty() {
-            cookie_header = format!("{DEFAULT_COOKIE}; {c}");
+        let cleaned = c
+            .chars()
+            .map(|ch| match ch {
+                '\r' | '\n' | '\t' => ' ',
+                other => other,
+            })
+            .collect::<String>()
+            .split(';')
+            .map(str::trim)
+            .filter(|p| !p.is_empty())
+            .collect::<Vec<_>>()
+            .join("; ");
+        if !cleaned.is_empty() {
+            cookie_header = format!("{DEFAULT_COOKIE}; {cleaned}");
         }
     }
 
-    let response = http_client()
-        .post(&url)
-        .header("Referer", "https://music.163.com")
-        .header("Origin", "https://music.163.com")
-        .header("Content-Type", "application/x-www-form-urlencoded")
-        .header("Cookie", cookie_header)
-        .form(&form)
-        .send()
-        .await
-        .map_err(|e| NeteaseError::Http(e.to_string()))?;
+    let mut response = None;
+    let mut last_err = None;
+    for attempt in 1u8..=3 {
+        match http_client()
+            .post(&url)
+            .header("Referer", "https://music.163.com")
+            .header("Origin", "https://music.163.com")
+            .header("Content-Type", "application/x-www-form-urlencoded")
+            .header("Cookie", &cookie_header)
+            .form(&form)
+            .send()
+            .await
+        {
+            Ok(resp) => {
+                response = Some(resp);
+                break;
+            }
+            Err(e) => {
+                last_err = Some(e);
+                if attempt < 3 {
+                    tokio::time::sleep(std::time::Duration::from_millis(400 * u64::from(attempt)))
+                        .await;
+                }
+            }
+        }
+    }
+    let response = match response {
+        Some(resp) => resp,
+        None => {
+            return Err(NeteaseError::Http(
+                last_err
+                    .map(|e| e.to_string())
+                    .unwrap_or_else(|| "request failed".into()),
+            ));
+        }
+    };
 
     let status = response.status().as_u16();
     let set_cookies: Vec<String> = response

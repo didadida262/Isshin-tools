@@ -20,6 +20,23 @@ function secureCdnUrl(url: string): string {
   return url.replace(/^http:\/\//i, 'https://')
 }
 
+/** Normalize pasted browser cookies so headers stay valid. */
+export function normalizeCookie(raw: string): string {
+  let s = raw
+    .replace(/^\uFEFF/, '')
+    .replace(/[\r\n\t]+/g, ' ')
+    .replace(/\s*;\s*/g, '; ')
+    .replace(/;\s*$/, '')
+    .trim()
+
+  // DevTools "Cookie Value" pane copies the bare MUSIC_U value.
+  if (s && !s.includes('=') && /^[0-9a-fA-F]+$/i.test(s) && s.length >= 32) {
+    s = `MUSIC_U=${s}`
+  }
+
+  return s
+}
+
 export class NeteaseApiError extends Error {
   constructor(
     message: string,
@@ -113,9 +130,15 @@ export class NeteaseApiClient {
     }
   }
 
-  async loginWithCookie(cookie: string) {
-    this.setCookie(cookie.trim())
-    return this.getAccount()
+  async loginWithCookie(cookie: string): Promise<string> {
+    const normalized = normalizeCookie(cookie)
+    if (!/(?:^|;\s*)MUSIC_U=/i.test(normalized)) {
+      throw new NeteaseApiError(
+        'Cookie 中缺少 MUSIC_U。请在 DevTools → Application → Cookies 中复制 MUSIC_U（建议同时带上 __csrf）',
+      )
+    }
+    this.setCookie(normalized)
+    return normalized
   }
 
   async getAccount(): Promise<{

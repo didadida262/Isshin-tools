@@ -32,7 +32,7 @@ function formatAuthError(err: unknown, fallback: string): string {
     return `请求超时（10s）：${raw}`
   }
   if (lower.includes('error sending request') || lower.includes('http:')) {
-    return `网络错误：${raw}`
+    return `连不上网易云接口，请检查网络/代理后重试，或改用扫码登录。详情：${raw}`
   }
   return raw || fallback
 }
@@ -149,7 +149,8 @@ export function useNeteaseAuth() {
       setStatus('logging-in')
       setError(null)
       try {
-        await applyAuthenticated(cookie)
+        const normalized = await neteaseApi.loginWithCookie(cookie)
+        await applyAuthenticated(normalized)
       } catch (e) {
         setError(formatAuthError(e, 'Cookie 登录失败'))
         setStatus('auth-error')

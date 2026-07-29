@@ -30,8 +30,9 @@ export function LoginPanel({
   onLogout,
 }: LoginPanelProps) {
   const [mode, setMode] = useState<'qr' | 'cookie'>('qr')
-  const [cookieInput, setCookieInput] = useState('')
+  const [cookieInput, setCookieInput] = useState('MUSIC_U=; __csrf=')
   const busy = status === 'logging-in'
+  const cookieReady = /(?:^|;\s*)MUSIC_U=[^;\s]+/i.test(cookieInput)
 
   if (status === 'authenticated' && profile) {
     return (
@@ -135,19 +136,24 @@ export function LoginPanel({
         ) : (
           <div className="space-y-3">
             <label className="block text-xs text-muted" htmlFor="cookie-input">
-              粘贴浏览器 Cookie（至少包含 MUSIC_U）
+              粘贴浏览器 Cookie（MUSIC_U 必填，建议带上 __csrf）
             </label>
             <textarea
               id="cookie-input"
               value={cookieInput}
               onChange={(e) => setCookieInput(e.target.value)}
               rows={3}
-              placeholder="MUSIC_U=...; __csrf=..."
+              placeholder="在 MUSIC_U= 和 __csrf= 后粘贴对应值"
               className="w-full resize-y rounded-xl border border-border bg-background px-3 py-2 text-xs text-foreground outline-none transition-all duration-200 placeholder:text-subtle focus:border-muted focus:ring-1 focus:ring-border"
             />
+            <p className="text-[11px] leading-relaxed text-subtle">
+              DevTools → Application → Cookies → music.163.com，把{' '}
+              <code className="text-muted">MUSIC_U</code> /{' '}
+              <code className="text-muted">__csrf</code> 的值填到等号后面。连不上时可改用扫码。
+            </p>
             <button
               type="button"
-              disabled={busy || !cookieInput.trim()}
+              disabled={busy || !cookieReady}
               onClick={() => onCookieLogin(cookieInput)}
               className="inline-flex items-center gap-2 rounded-xl bg-accent px-3.5 py-2 text-xs font-medium text-accent-fg transition-all duration-200 ease-in-out hover:opacity-90 disabled:opacity-50"
             >
