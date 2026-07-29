@@ -85,6 +85,7 @@ export function PlaylistList({
                       alt=""
                       className="h-10 w-10 shrink-0 rounded-lg object-cover"
                       loading="lazy"
+                      referrerPolicy="no-referrer"
                     />
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-sm text-foreground">

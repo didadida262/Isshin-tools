@@ -10,6 +10,16 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null
 }
 
+/**
+ * Packaged Tauri loads the UI from a secure origin (`https://tauri.localhost`).
+ * NetEase often returns `http://` CDN URLs for covers, which WKWebView blocks as
+ * mixed content. Upgrade to https so images work in DMG builds as well as dev.
+ */
+function secureCdnUrl(url: string): string {
+  if (!url) return url
+  return url.replace(/^http:\/\//i, 'https://')
+}
+
 export class NeteaseApiError extends Error {
   constructor(
     message: string,
@@ -128,7 +138,12 @@ export class NeteaseApiClient {
       throw new NeteaseApiError('登录态无效，请重新登录', body.code)
     }
 
-    return { profile: body.profile }
+    return {
+      profile: {
+        ...body.profile,
+        avatarUrl: secureCdnUrl(body.profile.avatarUrl),
+      },
+    }
   }
 
   async getUserPlaylists(uid: number) {
@@ -154,7 +169,7 @@ export class NeteaseApiClient {
     return (body.playlist ?? []).map((p) => ({
       id: p.id,
       name: p.name,
-      coverImgUrl: p.coverImgUrl,
+      coverImgUrl: secureCdnUrl(p.coverImgUrl),
       trackCount: p.trackCount,
       playCount: p.playCount,
       specialType: p.specialType,

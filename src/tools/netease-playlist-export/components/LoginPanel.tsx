@@ -41,6 +41,7 @@ export function LoginPanel({
             src={profile.avatarUrl}
             alt=""
             className="h-10 w-10 rounded-xl object-cover ring-1 ring-border"
+            referrerPolicy="no-referrer"
           />
           <div className="min-w-0">
             <p className="truncate text-sm font-medium text-foreground">
