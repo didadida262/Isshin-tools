@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "allow-netease"
+description = "Allow NetEase Cloud Music weapi bridge for playlist metadata export"
+commands.allow = ["netease_weapi", "netease_qr_url"]

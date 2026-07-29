@@ -16,6 +16,7 @@
     "store:default",
     "http:default",
     "allow-http-get-text",
+    "allow-netease",
     {
       "identifier": "http:allow-fetch",
       "allow": [

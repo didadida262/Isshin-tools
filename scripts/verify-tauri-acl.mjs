@@ -8,7 +8,8 @@ import { fileURLToPath } from 'node:url'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 const capabilitiesPath = join(root, 'src-tauri/capabilities/default.json')
-const permissionsPath = join(root, 'src-tauri/permissions/http-get-text.toml')
+const httpPermissionsPath = join(root, 'src-tauri/permissions/http-get-text.toml')
+const neteasePermissionsPath = join(root, 'src-tauri/permissions/netease.toml')
 
 if (!existsSync(capabilitiesPath)) {
   console.error('[verify-tauri-acl] 缺少 src-tauri/capabilities/default.json')
@@ -21,7 +22,7 @@ if (!Array.isArray(capabilities.permissions) || capabilities.permissions.length 
   process.exit(1)
 }
 
-const required = ['core:default', 'allow-http-get-text']
+const required = ['core:default', 'allow-http-get-text', 'allow-netease']
 for (const id of required) {
   const found = capabilities.permissions.some(
     (p) => p === id || (typeof p === 'object' && p?.identifier === id),
@@ -32,8 +33,13 @@ for (const id of required) {
   }
 }
 
-if (!existsSync(permissionsPath)) {
+if (!existsSync(httpPermissionsPath)) {
   console.error('[verify-tauri-acl] 缺少 src-tauri/permissions/http-get-text.toml')
+  process.exit(1)
+}
+
+if (!existsSync(neteasePermissionsPath)) {
+  console.error('[verify-tauri-acl] 缺少 src-tauri/permissions/netease.toml')
   process.exit(1)
 }
 
