@@ -73,9 +73,9 @@ export function FactorCard({ metric }: FactorCardProps) {
             </div>
 
             {showPie && metric.breakdown && (
-              <div className="rounded-xl border border-border-subtle/80 bg-background/30 p-2.5">
-                <p className="mb-2 text-[10px] tracking-wide text-subtle">当月主要净买入国构成</p>
-                <MiniPieChart slices={metric.breakdown} />
+              <div className="rounded-xl border border-border-subtle/80 bg-background/30 p-3.5">
+                <p className="mb-3 text-[10px] tracking-wide text-subtle">当月主要净买入国构成</p>
+                <MiniPieChart slices={metric.breakdown} size={160} />
               </div>
             )}
           </div>

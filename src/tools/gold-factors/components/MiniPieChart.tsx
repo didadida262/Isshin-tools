@@ -29,7 +29,7 @@ function arcPath(cx: number, cy: number, r: number, start: number, end: number) 
   return `M ${cx} ${cy} L ${e.x} ${e.y} A ${r} ${r} 0 ${large} 1 ${s.x} ${s.y} Z`
 }
 
-export function MiniPieChart({ slices, size = 96 }: MiniPieChartProps) {
+export function MiniPieChart({ slices, size = 160 }: MiniPieChartProps) {
   const [hoverIndex, setHoverIndex] = useState<number | null>(null)
 
   const total = useMemo(
@@ -68,7 +68,7 @@ export function MiniPieChart({ slices, size = 96 }: MiniPieChartProps) {
   const hover = hoverIndex !== null ? segments[hoverIndex] : null
 
   return (
-    <div className="flex items-center gap-3">
+    <div className="flex items-center gap-4">
       <div className="relative shrink-0" style={{ width: size, height: size }}>
         <svg
           width={size}
@@ -134,20 +134,20 @@ export function MiniPieChart({ slices, size = 96 }: MiniPieChartProps) {
         )}
       </div>
 
-      <ul className="min-w-0 flex-1 space-y-1">
+      <ul className="min-w-0 flex-1 space-y-1.5">
         {segments.map((seg) => {
           const active = hoverIndex === seg.index
           return (
             <li
               key={seg.label}
-              className={`flex cursor-pointer items-center gap-1.5 rounded-md px-1 py-0.5 text-[10px] transition-colors duration-150 ${
+              className={`flex cursor-pointer items-center gap-2 rounded-md px-1.5 py-1 text-[11px] transition-colors duration-150 ${
                 active ? 'bg-surface-hover text-foreground' : 'text-muted'
               }`}
               onMouseEnter={() => setHoverIndex(seg.index)}
               onMouseLeave={() => setHoverIndex(null)}
             >
               <span
-                className="inline-block h-2 w-2 shrink-0 rounded-sm"
+                className="inline-block h-2.5 w-2.5 shrink-0 rounded-sm"
                 style={{ background: seg.color }}
               />
               <span className={`truncate ${active ? 'font-medium text-foreground' : 'text-foreground'}`}>
