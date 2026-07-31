@@ -14,18 +14,18 @@ export interface ToolDefinition {
 
 export const toolsRegistry: ToolDefinition[] = [
   {
-    id: 'netease-playlist-export',
-    name: '网易云歌单导出',
-    description: '仅导出歌单元数据，不涉及音频',
-    icon: faMusic,
-    component: NeteasePlaylistExportTool,
-  },
-  {
     id: 'gold-factors',
     name: '黄金影响因子',
     description: '实际利率 / 美元 / 通胀 / 风险分层监控',
     icon: faChartLine,
     component: GoldFactorsTool,
+  },
+  {
+    id: 'netease-playlist-export',
+    name: '网易云歌单导出',
+    description: '仅导出歌单元数据，不涉及音频',
+    icon: faMusic,
+    component: NeteasePlaylistExportTool,
   },
 ]
 
