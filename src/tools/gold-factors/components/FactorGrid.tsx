@@ -25,9 +25,9 @@ export function FactorGrid({ metrics, loading }: FactorGridProps) {
           ))}
         </div>
         <div className="grid gap-3 xl:grid-cols-2">
-          <div className="flex flex-col gap-3">
-            <SkeletonCard />
-            <SkeletonCard />
+          <div className="flex h-full flex-col gap-3">
+            <SkeletonCard className="flex-1" />
+            <SkeletonCard className="flex-1" />
           </div>
           <SkeletonCard tall />
         </div>
@@ -57,10 +57,12 @@ export function FactorGrid({ metrics, loading }: FactorGridProps) {
       )}
 
       {(stack.length > 0 || side) && (
-        <div className="grid items-start gap-3 xl:grid-cols-2">
-          <div className="flex flex-col gap-3">
+        <div className="grid gap-3 xl:grid-cols-2">
+          <div className="flex h-full flex-col gap-3">
             {stack.map((metric) => (
-              <FactorCard key={metric.id} metric={metric} />
+              <div key={metric.id} className="min-h-0 flex-1">
+                <FactorCard metric={metric} />
+              </div>
             ))}
           </div>
           {side && <FactorCard metric={side} />}
@@ -78,12 +80,18 @@ export function FactorGrid({ metrics, loading }: FactorGridProps) {
   )
 }
 
-function SkeletonCard({ tall = false }: { tall?: boolean }) {
+function SkeletonCard({
+  tall = false,
+  className = '',
+}: {
+  tall?: boolean
+  className?: string
+}) {
   return (
     <div
       className={`flex flex-col gap-3 rounded-2xl border border-border-subtle bg-surface/40 p-4 ${
         tall ? 'min-h-72' : ''
-      }`}
+      } ${className}`}
     >
       <Skeleton className="h-4 w-1/2" />
       <Skeleton className="h-3 w-[80%]" />
