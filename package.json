@@ -9,10 +9,11 @@
     "lint": "oxlint",
     "preview": "vite preview",
     "tauri": "tauri",
-    "desktop:dev": "tauri dev",
-    "desktop:build:mac": "node scripts/sync-app-version.mjs && node scripts/ensure-desktop-platform.mjs mac && cargo build --manifest-path src-tauri/Cargo.toml && node scripts/verify-tauri-acl.mjs && tauri build --bundles app,dmg && node scripts/print-desktop-artifacts.mjs mac",
-    "desktop:build:mac:intel": "node scripts/sync-app-version.mjs && node scripts/ensure-desktop-platform.mjs mac && cargo build --manifest-path src-tauri/Cargo.toml && node scripts/verify-tauri-acl.mjs && tauri build --target x86_64-apple-darwin --bundles app,dmg && node scripts/print-desktop-artifacts.mjs mac-intel",
-    "desktop:build:win": "node scripts/sync-app-version.mjs && node scripts/ensure-desktop-platform.mjs win && cargo build --manifest-path src-tauri/Cargo.toml && node scripts/verify-tauri-acl.mjs && tauri build --bundles nsis && node scripts/print-desktop-artifacts.mjs win"
+    "ffmpeg:download": "node scripts/download-ffmpeg.mjs",
+    "desktop:dev": "node scripts/download-ffmpeg.mjs && tauri dev",
+    "desktop:build:mac": "node scripts/sync-app-version.mjs && node scripts/ensure-desktop-platform.mjs mac && node scripts/download-ffmpeg.mjs && cargo build --manifest-path src-tauri/Cargo.toml && node scripts/verify-tauri-acl.mjs && tauri build --bundles app,dmg && node scripts/print-desktop-artifacts.mjs mac",
+    "desktop:build:mac:intel": "node scripts/sync-app-version.mjs && node scripts/ensure-desktop-platform.mjs mac && node scripts/download-ffmpeg.mjs --target x86_64-apple-darwin && cargo build --manifest-path src-tauri/Cargo.toml && node scripts/verify-tauri-acl.mjs && tauri build --target x86_64-apple-darwin --bundles app,dmg && node scripts/print-desktop-artifacts.mjs mac-intel",
+    "desktop:build:win": "node scripts/sync-app-version.mjs && node scripts/ensure-desktop-platform.mjs win && node scripts/download-ffmpeg.mjs && cargo build --manifest-path src-tauri/Cargo.toml && node scripts/verify-tauri-acl.mjs && tauri build --bundles nsis && node scripts/print-desktop-artifacts.mjs win"
   },
   "dependencies": {
     "@fortawesome/fontawesome-svg-core": "^7.3.1",

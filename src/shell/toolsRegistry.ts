@@ -1,8 +1,9 @@
 import type { ComponentType } from 'react'
 import type { IconDefinition } from '@fortawesome/fontawesome-svg-core'
-import { faChartLine, faMusic } from '@fortawesome/free-solid-svg-icons'
+import { faChartLine, faMusic, faScissors } from '@fortawesome/free-solid-svg-icons'
 import { NeteasePlaylistExportTool } from '@/tools/netease-playlist-export'
 import { GoldFactorsTool } from '@/tools/gold-factors'
+import { DouyinTrimEndTool } from '@/tools/douyin-trim-end'
 
 export interface ToolDefinition {
   id: string
@@ -26,6 +27,13 @@ export const toolsRegistry: ToolDefinition[] = [
     description: '仅导出歌单元数据，不涉及音频',
     icon: faMusic,
     component: NeteasePlaylistExportTool,
+  },
+  {
+    id: 'douyin-trim-end',
+    name: '抖音结尾切除',
+    description: '批量切除视频末尾冗余帧',
+    icon: faScissors,
+    component: DouyinTrimEndTool,
   },
 ]
 

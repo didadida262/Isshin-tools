@@ -1,5 +1,6 @@
 mod http_fetch;
 mod netease;
+mod video_trim;
 
 use netease::NeteaseResponse;
 use serde_json::Value;
@@ -41,7 +42,9 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             netease_weapi,
             netease_qr_url,
-            http_fetch::http_get_text
+            http_fetch::http_get_text,
+            video_trim::scan_video_dir,
+            video_trim::trim_video_end
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

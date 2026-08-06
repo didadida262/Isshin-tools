@@ -17,6 +17,8 @@
     "http:default",
     "allow-http-get-text",
     "allow-netease",
+    "allow-video-trim",
+    "dialog:allow-open",
     {
       "identifier": "http:allow-fetch",
       "allow": [
