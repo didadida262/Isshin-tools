@@ -238,13 +238,18 @@ export function ResourceSniffDialog({
                           type="button"
                           disabled={downloadingBvid !== null}
                           onClick={() => void handleDownload(item)}
-                          className="inline-flex h-8 shrink-0 items-center gap-1.5 self-center rounded-xl border border-border bg-surface px-2.5 text-[11px] text-foreground transition-all duration-200 hover:border-muted hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-40"
+                          aria-busy={busy}
+                          className={`inline-flex h-8 w-[4.75rem] shrink-0 items-center justify-center gap-1.5 self-center rounded-xl border px-2 text-[11px] transition-all duration-200 ${
+                            busy
+                              ? 'cursor-wait border-muted bg-surface-hover text-foreground'
+                              : 'border-border bg-surface text-foreground hover:border-muted hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-40'
+                          }`}
                         >
                           <FontAwesomeIcon
                             icon={busy ? faSpinner : faDownload}
-                            className={`h-3 w-3 ${busy ? 'animate-spin' : ''}`}
+                            className={`h-3 w-3 shrink-0 ${busy ? 'animate-spin' : ''}`}
                           />
-                          {busy ? '下载中' : '下载'}
+                          <span className="leading-none">{busy ? '下载中' : '下载'}</span>
                         </button>
                       </li>
                     )
