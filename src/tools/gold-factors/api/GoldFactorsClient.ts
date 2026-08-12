@@ -171,16 +171,28 @@ export function parseWgcCentralBankNetTonnes(html: string): {
   periodLabel: string
 } | null {
   // Prefer the last match — teaser/meta often lags the corrected body figure.
-  const increased = [...html.matchAll(/increased by a net\s+(\d+(?:\.\d+)?)\s*t/gi)]
-  const bought = [
-    ...html.matchAll(/net gold purchases[^.]{0,120}?having bought\s+(\d+(?:\.\d+)?)\s*t/gi),
+  const patterns: Array<{ re: RegExp; sign: 1 | -1 }> = [
+    { re: /increased by a net\s+(\d+(?:\.\d+)?)\s*t/gi, sign: 1 },
+    {
+      re: /net gold purchases[^.]{0,120}?having bought\s+(\d+(?:\.\d+)?)\s*t/gi,
+      sign: 1,
+    },
+    // 2026-08+ wording: "Central banks bought 51t of gold in June"
+    { re: /central banks bought\s+(\d+(?:\.\d+)?)\s*t(?:\s+of gold)?/gi, sign: 1 },
+    { re: /bought\s+(\d+(?:\.\d+)?)\s*t of gold/gi, sign: 1 },
+    { re: /net purchases?(?:\s+of gold)?[^.]{0,40}?(\d+(?:\.\d+)?)\s*t/gi, sign: 1 },
+    { re: /net sales[^.]{0,40}?(\d+(?:\.\d+)?)\s*t/gi, sign: -1 },
   ]
-  const sales = [...html.matchAll(/net sales[^.]{0,40}?(\d+(?:\.\d+)?)\s*t/gi)]
 
   let value: number | null = null
-  if (increased.length > 0) value = Number(increased[increased.length - 1]![1])
-  else if (bought.length > 0) value = Number(bought[bought.length - 1]![1])
-  else if (sales.length > 0) value = -Number(sales[sales.length - 1]![1])
+  for (const { re, sign } of patterns) {
+    const matches = [...html.matchAll(re)]
+    if (matches.length === 0) continue
+    const raw = Number(matches[matches.length - 1]![1])
+    if (!Number.isFinite(raw)) continue
+    value = sign * raw
+    break
+  }
 
   if (value === null || !Number.isFinite(value)) return null
 
@@ -206,6 +218,10 @@ const BANK_COUNTRY_ZH: Array<{ match: RegExp; label: string }> = [
   { match: /qatar/i, label: '卡塔尔' },
   { match: /hungary/i, label: '匈牙利' },
   { match: /brazil/i, label: '巴西' },
+  { match: /jordan/i, label: '约旦' },
+  { match: /ghana/i, label: '加纳' },
+  { match: /georgia/i, label: '格鲁吉亚' },
+  { match: /chile/i, label: '智利' },
 ]
 
 const BUY_VERBS = 'added|bought|purchased|(?:having\\s+)?accumulated'
@@ -526,30 +542,32 @@ async function fetchCentralBankGold(): Promise<FactorMetric> {
     const unique = [...new Set(links)].slice(0, 2)
     if (unique.length === 0) throw new Error('未找到 WGC 央行购金月报')
 
-    const articles = await Promise.all(
-      unique.map(async (path) => {
-        const html = await httpGetText(`https://www.gold.org${path}`)
-        const parsed = parseWgcCentralBankNetTonnes(html)
-        if (!parsed) return null
-        const yearMatch = path.match(/\/(\d{4})\/(\d{2})\//)
-        const pubYear = yearMatch ? Number(yearMatch[1]) : NaN
-        const pubMonth = yearMatch ? Number(yearMatch[2]) : NaN
-        const mm = MONTH_NUM[parsed.periodLabel.toLowerCase()]
-        let asOf = parsed.periodLabel
-        if (mm && Number.isFinite(pubYear)) {
-          let year = pubYear
-          const dataMonth = Number(mm)
-          if (Number.isFinite(pubMonth) && dataMonth > pubMonth) year -= 1
-          asOf = `${year}-${mm}`
-        }
-        return {
-          ...parsed,
-          asOf,
-          path,
-          breakdown: parseWgcCountryBuyers(html),
-        }
-      }),
-    )
+    const articles = (
+      await Promise.all(
+        unique.map(async (path) => {
+          const html = await httpGetText(`https://www.gold.org${path}`)
+          const parsed = parseWgcCentralBankNetTonnes(html)
+          if (!parsed) return null
+          const yearMatch = path.match(/\/(\d{4})\/(\d{2})\//)
+          const pubYear = yearMatch ? Number(yearMatch[1]) : NaN
+          const pubMonth = yearMatch ? Number(yearMatch[2]) : NaN
+          const mm = MONTH_NUM[parsed.periodLabel.toLowerCase()]
+          let asOf = parsed.periodLabel
+          if (mm && Number.isFinite(pubYear)) {
+            let year = pubYear
+            const dataMonth = Number(mm)
+            if (Number.isFinite(pubMonth) && dataMonth > pubMonth) year -= 1
+            asOf = `${year}-${mm}`
+          }
+          return {
+            ...parsed,
+            asOf,
+            path,
+            breakdown: parseWgcCountryBuyers(html),
+          }
+        }),
+      )
+    ).filter((x): x is NonNullable<typeof x> => x != null)
 
     const [current, previous] = articles
     if (!current) throw new Error('WGC 月报解析失败')
