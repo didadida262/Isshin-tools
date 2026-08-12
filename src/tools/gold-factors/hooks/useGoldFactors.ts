@@ -39,6 +39,8 @@ function mergeRealtime(
     fetchedAt: patch.fetchedAt,
     metrics,
     spotGold: patch.spotGold.value !== null ? patch.spotGold : prev.spotGold,
+    shanghaiGold:
+      patch.shanghaiGold.value !== null ? patch.shanghaiGold : prev.shanghaiGold,
   }
 }
 

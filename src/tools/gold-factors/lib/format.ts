@@ -39,6 +39,13 @@ export function formatValue(value: number | null, unit: string): string {
     }).format(value)
     return `$ ${amount}`
   }
+  if (unit === 'CNY/g') {
+    const amount = new Intl.NumberFormat('zh-CN', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(value)
+    return `¥ ${amount}`
+  }
   if (unit === 't') return `${value.toFixed(0)} t`
   return value.toFixed(2)
 }
@@ -58,13 +65,16 @@ export function formatDelta(
   if (unit === 'USD/oz' && pct !== null) {
     return `${sign}${abs.toFixed(2)} (${sign}${pct.toFixed(2)} %)`
   }
+  if (unit === 'CNY/g' && pct !== null) {
+    return `${sign}${abs.toFixed(2)} (${sign}${pct.toFixed(2)} %)`
+  }
   if (pct !== null) return `${sign}${abs.toFixed(2)} (${sign}${pct.toFixed(2)} %)`
   return `${sign}${abs.toFixed(2)}`
 }
 
 export function deltaBaselineLabel(metric: FactorMetric): string {
   if (metric.cadence !== 'realtime') return '较前值'
-  if (metric.unit === 'USD/oz') return '较昨结'
+  if (metric.unit === 'USD/oz' || metric.unit === 'CNY/g') return '较昨结'
   return '较昨收'
 }
 

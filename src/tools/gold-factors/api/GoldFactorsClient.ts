@@ -147,6 +147,28 @@ export function parseSinaHfXau(raw: string): {
   }
 }
 
+/** Sina SHFE gold continuous `nf_AU0`（沪金连续，元/克）. */
+export function parseSinaNfAu0(raw: string): {
+  value: number
+  previous: number | null
+  asOf: string
+  name: string
+} {
+  const parts = extractSinaQuoted(raw, 'nf_AU0').split(',')
+  // 最新价 / 昨结；字段顺序见新浪商品期货行情
+  const value = Number(parts[8])
+  const previous = Number(parts[10])
+  const name = parts[0] ?? '黄金连续'
+  const date = parts[17] ?? ''
+  if (!Number.isFinite(value) || value <= 0) throw new Error('新浪沪金解析失败')
+  return {
+    value,
+    previous: Number.isFinite(previous) && previous > 0 ? previous : null,
+    asOf: date.trim(),
+    name,
+  }
+}
+
 /** Sina US stock `gb_*` quote (e.g. gb_vixy). */
 export function parseSinaGbStock(raw: string, key: string): {
   value: number
@@ -338,6 +360,36 @@ async function fetchSpotGold(): Promise<FactorMetric> {
         error: errorMessage(primaryErr) || '金价拉取失败',
       })
     }
+  }
+}
+
+async function fetchShanghaiGold(): Promise<FactorMetric> {
+  const base = {
+    id: 'shfe-au',
+    label: '上海沪金',
+    shortLabel: 'AU0',
+    description: '上期所黄金连续合约 · 元/克',
+    cadence: 'realtime' as const,
+    unit: 'CNY/g',
+    source: '新浪财经 nf_AU0',
+    goldFriendlyWhen: 'context' as const,
+  }
+
+  try {
+    const raw = await httpGetText('https://hq.sinajs.cn/list=nf_AU0')
+    const q = parseSinaNfAu0(raw)
+    return metricBase({
+      ...base,
+      description: `${q.name} · 上期所 · 元/克`,
+      value: q.value,
+      previousValue: q.previous,
+      asOf: q.asOf,
+    })
+  } catch (e) {
+    return metricBase({
+      ...base,
+      error: errorMessage(e) || '沪金拉取失败',
+    })
   }
 }
 
@@ -594,8 +646,9 @@ async function fetchCentralBankGold(): Promise<FactorMetric> {
  * FRED is intentionally not primary — often blocked / HTTP2-unstable.
  */
 export async function fetchGoldFactorsSnapshot(): Promise<GoldFactorsSnapshot> {
-  const [spotGold, dxy, nominal10y, realYield, risk, cbGold] = await Promise.all([
+  const [spotGold, shanghaiGold, dxy, nominal10y, realYield, risk, cbGold] = await Promise.all([
     fetchSpotGold(),
+    fetchShanghaiGold(),
     fetchDxy(),
     fetchTreasuryMetric({
       id: 'nominal-10y',
@@ -629,6 +682,7 @@ export async function fetchGoldFactorsSnapshot(): Promise<GoldFactorsSnapshot> {
     fetchedAt: new Date().toISOString(),
     metrics: [spotGold, realYield, dxy, breakeven, nominal10y, risk, cbGold],
     spotGold: spotGold.value !== null ? spotGold : null,
+    shanghaiGold: shanghaiGold.value !== null ? shanghaiGold : null,
   }
 }
 
@@ -636,17 +690,20 @@ export async function fetchGoldFactorsSnapshot(): Promise<GoldFactorsSnapshot> {
 export async function fetchRealtimeGoldFactors(): Promise<{
   fetchedAt: string
   spotGold: FactorMetric
+  shanghaiGold: FactorMetric
   dxy: FactorMetric
   risk: FactorMetric
 }> {
-  const [spotGold, dxy, risk] = await Promise.all([
+  const [spotGold, shanghaiGold, dxy, risk] = await Promise.all([
     fetchSpotGold(),
+    fetchShanghaiGold(),
     fetchDxy(),
     fetchRiskProxy(),
   ])
   return {
     fetchedAt: new Date().toISOString(),
     spotGold,
+    shanghaiGold,
     dxy,
     risk,
   }

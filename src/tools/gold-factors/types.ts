@@ -36,6 +36,8 @@ export interface GoldFactorsSnapshot {
   fetchedAt: string
   metrics: FactorMetric[]
   spotGold: FactorMetric | null
+  /** 上期所沪金连续（新浪 nf_AU0） */
+  shanghaiGold: FactorMetric | null
 }
 
 export interface GoldFactorsState {

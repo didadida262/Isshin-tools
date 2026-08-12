@@ -21,7 +21,8 @@ export function GoldFactorsTool() {
 
       <div className="min-h-0 flex-1 space-y-5 overflow-y-auto pb-2">
         <SpotHero
-          metric={snapshot?.spotGold ?? null}
+          london={snapshot?.spotGold ?? null}
+          shanghai={snapshot?.shanghaiGold ?? null}
           loading={loading}
           fetchedAt={snapshot?.fetchedAt ?? null}
         />
@@ -46,8 +47,9 @@ export function GoldFactorsTool() {
         )}
 
         <footer className="rounded-2xl border border-border-subtle/80 px-4 py-3 text-[11px] leading-relaxed text-subtle">
-          数据源：金价新浪 hf_XAU · 美元指数新浪 DINIW · 美债名义/实际利率 U.S. Treasury XML ·
-          盈亏平衡由名义−实际推算 · 风险偏好新浪 VIXY · 央行购金 WGC 月报。FRED 在部分网络下不稳定，已不再作为主源。
+          数据源：伦敦金新浪 hf_XAU · 沪金新浪 nf_AU0 · 美元指数新浪 DINIW · 美债名义/实际利率 U.S.
+          Treasury XML · 盈亏平衡由名义−实际推算 · 风险偏好新浪 VIXY · 央行购金 WGC 月报。FRED
+          在部分网络下不稳定，已不再作为主源。
         </footer>
       </div>
     </div>

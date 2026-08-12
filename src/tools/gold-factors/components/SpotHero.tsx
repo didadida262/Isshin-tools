@@ -5,36 +5,46 @@ import type { FactorMetric } from '../types'
 import { Skeleton } from '@/components/Skeleton'
 
 interface SpotHeroProps {
-  metric: FactorMetric | null
+  london: FactorMetric | null
+  shanghai: FactorMetric | null
   loading: boolean
   fetchedAt: string | null
 }
 
-export function SpotHero({ metric, loading, fetchedAt }: SpotHeroProps) {
-  if (loading && !metric) {
+export function SpotHero({ london, shanghai, loading, fetchedAt }: SpotHeroProps) {
+  if (loading && !london && !shanghai) {
     return (
       <div
         className="rounded-2xl border border-border-subtle bg-surface/50 p-5 md:p-6"
         role="status"
         aria-label="金价加载中"
       >
-        <Skeleton className="h-3 w-24" />
-        <Skeleton className="mt-4 h-10 w-48" />
-        <Skeleton className="mt-3 h-3 w-40" />
+        <div className="grid gap-6 sm:grid-cols-2">
+          <div>
+            <Skeleton className="h-3 w-28" />
+            <Skeleton className="mt-4 h-10 w-40" />
+            <Skeleton className="mt-3 h-3 w-36" />
+          </div>
+          <div>
+            <Skeleton className="h-3 w-24" />
+            <Skeleton className="mt-4 h-10 w-36" />
+            <Skeleton className="mt-3 h-3 w-32" />
+          </div>
+        </div>
       </div>
     )
   }
 
-  if (!metric || metric.value === null) {
+  if ((!london || london.value === null) && (!shanghai || shanghai.value === null)) {
     return (
       <div className="rounded-2xl border border-dashed border-border-subtle p-5 md:p-6">
-        <p className="text-sm text-muted">现货金价暂不可用</p>
-        {metric?.error && <p className="mt-1 text-xs text-danger">{metric.error}</p>}
+        <p className="text-sm text-muted">金价暂不可用</p>
+        {(london?.error || shanghai?.error) && (
+          <p className="mt-1 text-xs text-danger">{london?.error || shanghai?.error}</p>
+        )}
       </div>
     )
   }
-
-  const delta = changeAbs(metric.value, metric.previousValue)
 
   return (
     <div className="relative overflow-hidden rounded-2xl border border-border-subtle bg-surface/70 p-5 shadow-sm md:p-6">
@@ -46,29 +56,75 @@ export function SpotHero({ metric, loading, fetchedAt }: SpotHeroProps) {
             'radial-gradient(ellipse 50% 80% at 0% 50%, color-mix(in srgb, var(--accent) 10%, transparent), transparent)',
         }}
       />
-      <div className="relative flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-subtle">
-            Spot Gold · XAU/USD
-          </p>
-          <p className="mt-2 font-display text-4xl font-semibold tracking-tight text-foreground tabular-nums md:text-5xl">
-            {formatValue(metric.value, metric.unit)}
-          </p>
-          <p
-            className={`mt-2 flex items-center gap-1.5 text-sm font-medium tabular-nums ${deltaToneClass(delta)}`}
-          >
-            <SpotDeltaMark delta={delta} />
-            <span>
-              较昨结 {formatDelta(metric.value, metric.previousValue, metric.unit)}
-            </span>
-          </p>
-        </div>
-        <div className="text-left text-[11px] text-subtle sm:text-right">
-          <p>报价时刻 {formatAsOf(metric.asOf)}</p>
-          <p className="mt-1">面板刷新 {formatAsOf(fetchedAt)}</p>
-          <p className="mt-1">{metric.source}</p>
-        </div>
+      <div className="relative grid gap-6 sm:grid-cols-2 sm:gap-8">
+        <SpotQuote
+          eyebrow="伦敦金 · XAU/USD"
+          metric={london}
+          emptyHint="伦敦金暂不可用"
+        />
+        <SpotQuote
+          eyebrow="上海沪金 · AU 连续"
+          metric={shanghai}
+          emptyHint="沪金暂不可用"
+          unitSuffix="/克"
+        />
       </div>
+      <div className="relative mt-4 flex flex-wrap gap-x-4 gap-y-1 border-t border-border-subtle/70 pt-3 text-[11px] text-subtle">
+        <p>面板刷新 {formatAsOf(fetchedAt)}</p>
+        {london?.asOf && <p>伦敦报价 {formatAsOf(london.asOf)}</p>}
+        {shanghai?.asOf && <p>沪金日期 {formatAsOf(shanghai.asOf)}</p>}
+        <p className="sm:ml-auto">
+          {[london?.source, shanghai?.source].filter(Boolean).join(' · ') || '—'}
+        </p>
+      </div>
+    </div>
+  )
+}
+
+function SpotQuote({
+  eyebrow,
+  metric,
+  emptyHint,
+  unitSuffix = '',
+}: {
+  eyebrow: string
+  metric: FactorMetric | null
+  emptyHint: string
+  unitSuffix?: string
+}) {
+  if (!metric || metric.value === null) {
+    return (
+      <div>
+        <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-subtle">
+          {eyebrow}
+        </p>
+        <p className="mt-3 text-sm text-muted">{emptyHint}</p>
+        {metric?.error && <p className="mt-1 text-xs text-danger">{metric.error}</p>}
+      </div>
+    )
+  }
+
+  const delta = changeAbs(metric.value, metric.previousValue)
+
+  return (
+    <div>
+      <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-subtle">
+        {eyebrow}
+      </p>
+      <p className="mt-2 font-display text-3xl font-semibold tracking-tight text-foreground tabular-nums md:text-4xl">
+        {formatValue(metric.value, metric.unit)}
+        {unitSuffix ? (
+          <span className="ml-1 text-base font-medium text-subtle md:text-lg">{unitSuffix}</span>
+        ) : null}
+      </p>
+      <p
+        className={`mt-2 flex items-center gap-1.5 text-sm font-medium tabular-nums ${deltaToneClass(delta)}`}
+      >
+        <SpotDeltaMark delta={delta} />
+        <span>
+          较昨结 {formatDelta(metric.value, metric.previousValue, metric.unit)}
+        </span>
+      </p>
     </div>
   )
 }
