@@ -180,6 +180,7 @@ export function AwemePanel({
                 <col style={{ width: '3.25rem' }} />
                 <col />
                 <col style={{ width: '5.5rem' }} />
+                <col style={{ width: '4.5rem' }} />
                 <col style={{ width: '4rem' }} />
                 <col style={{ width: '5rem' }} />
               </colgroup>
@@ -188,6 +189,7 @@ export function AwemePanel({
                   <th className="px-3 py-2 font-medium">封面</th>
                   <th className="px-2 py-2 font-medium">内容</th>
                   <th className="px-2 py-2 font-medium">作者</th>
+                  <th className="px-2 py-2 text-right font-medium">点赞</th>
                   <th className="px-2 py-2 text-right font-medium">时长</th>
                   <th className="px-3 py-2 text-right font-medium">状态</th>
                 </tr>
@@ -218,12 +220,12 @@ export function AwemePanel({
                         <p className="line-clamp-2 font-medium text-foreground">
                           {item.desc || `未命名 ${index + 1}`}
                         </p>
-                        <p className="mt-0.5 truncate text-[11px] text-subtle">
-                          {formatCount(item.diggCount)} 赞
-                        </p>
                       </td>
                       <td className="truncate px-2 py-2.5 text-muted">
                         {item.authorName || '—'}
+                      </td>
+                      <td className="px-2 py-2.5 text-right tabular-nums text-subtle">
+                        {formatCount(item.diggCount)}
                       </td>
                       <td className="px-2 py-2.5 text-right tabular-nums text-subtle">
                         {formatDuration(item.durationMs)}
@@ -285,7 +287,7 @@ export function AwemePanel({
                   animate={{ opacity: 1, y: 0, scale: 1 }}
                   exit={{ opacity: 0, y: 8, scale: 0.98 }}
                   transition={{ duration: 0.18, ease: 'easeOut' }}
-                  className="relative z-10 flex max-h-[min(88vh,720px)] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-border bg-surface shadow-xl"
+                  className="relative z-10 flex h-[min(88vh,720px)] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-border bg-surface shadow-xl"
                 >
                   <div className="flex shrink-0 items-start justify-between gap-3 border-b border-border-subtle px-5 py-4">
                     <div className="min-w-0">
@@ -326,7 +328,7 @@ export function AwemePanel({
                         controls
                         autoPlay
                         playsInline
-                        className="max-h-[min(56vh,480px)] max-w-full rounded-xl"
+                        className="h-full max-h-full w-auto max-w-full rounded-xl object-contain"
                         poster={selected.coverUrl || undefined}
                       />
                     ) : null}
