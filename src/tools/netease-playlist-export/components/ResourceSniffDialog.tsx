@@ -13,14 +13,17 @@ import { useToast } from '@/components/Toast'
 import {
   downloadBilibili,
   searchBilibili,
+  type BiliDownloadedEntry,
   type BiliSearchItem,
 } from '../api/bilibiliSniff'
-import type { NeteaseTrack } from '../types'
+import type { NeteasePlaylist, NeteaseTrack } from '../types'
 
 interface ResourceSniffDialogProps {
   open: boolean
   track: NeteaseTrack | null
+  playlist: NeteasePlaylist | null
   onClose: () => void
+  onDownloaded?: (entry: BiliDownloadedEntry) => void
 }
 
 function formatPlay(n: number) {
@@ -40,7 +43,9 @@ function formatDelta(ms: number | null) {
 export function ResourceSniffDialog({
   open,
   track,
+  playlist,
   onClose,
+  onDownloaded,
 }: ResourceSniffDialogProps) {
   const { toast } = useToast()
   const [loading, setLoading] = useState(false)
@@ -93,9 +98,27 @@ export function ResourceSniffDialog({
     setDownloadingBvid(item.bvid)
     try {
       const preferredTitle = `${track.artists || '未知'} - ${track.name}`
-      const result = await downloadBilibili(item.bvid, preferredTitle)
+      const result = await downloadBilibili({
+        bvid: item.bvid,
+        songId: track.songId,
+        playlistId: playlist?.id,
+        playlistName: playlist?.name,
+        preferredTitle,
+        artists: track.artists,
+      })
       setLastPath(result.path)
-      toast('已下载到 downloads/bilibili-sniff', 'success')
+      onDownloaded?.({
+        songId: track.songId,
+        playlistId: playlist?.id ?? null,
+        playlistName: playlist?.name ?? null,
+        path: result.path,
+        bvid: result.bvid,
+        title: preferredTitle,
+        artists: track.artists || null,
+        downloadedAt: Math.floor(Date.now() / 1000),
+      })
+      const folder = playlist?.name ? `downloads/bilibili-sniff/${playlist.name}` : 'downloads/bilibili-sniff'
+      toast(`已下载到 ${folder}`, 'success')
     } catch (e) {
       toast(e instanceof Error ? e.message : String(e), 'danger')
     } finally {

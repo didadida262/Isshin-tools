@@ -47,7 +47,8 @@ pub fn run() {
             video_trim::scan_video_dir,
             video_trim::trim_video_end,
             bilibili::bilibili_search,
-            bilibili::bilibili_download
+            bilibili::bilibili_download,
+            bilibili::bilibili_list_downloaded
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

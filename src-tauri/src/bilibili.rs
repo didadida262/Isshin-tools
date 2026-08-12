@@ -44,6 +44,32 @@ pub struct BiliDownloadResult {
     pub path: String,
     pub bvid: String,
     pub title: String,
+    pub song_id: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BiliDownloadedEntry {
+    pub song_id: u64,
+    pub playlist_id: Option<u64>,
+    pub playlist_name: Option<String>,
+    pub path: String,
+    pub bvid: String,
+    pub title: String,
+    pub artists: Option<String>,
+    pub downloaded_at: u64,
+}
+
+#[derive(Debug, Default, Serialize, Deserialize)]
+struct DownloadIndex {
+    version: u32,
+    #[serde(default)]
+    entries: std::collections::HashMap<String, BiliDownloadedEntry>,
+}
+
+fn index_lock() -> &'static Mutex<()> {
+    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    LOCK.get_or_init(|| Mutex::new(()))
 }
 
 struct WbiCache {
@@ -238,7 +264,7 @@ fn sanitize_filename(name: &str) -> String {
     }
 }
 
-fn resolve_download_dir(app: &AppHandle) -> Result<PathBuf, String> {
+fn resolve_download_root(app: &AppHandle) -> Result<PathBuf, String> {
     let from_manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .map(|root| root.join("downloads").join("bilibili-sniff"));
@@ -257,6 +283,49 @@ fn resolve_download_dir(app: &AppHandle) -> Result<PathBuf, String> {
         .app_local_data_dir()
         .map_err(|e| format!("无法解析应用数据目录: {e}"))?;
     Ok(base.join("downloads").join("bilibili-sniff"))
+}
+
+fn index_path(root: &Path) -> PathBuf {
+    root.join("index.json")
+}
+
+async fn load_index(root: &Path) -> Result<DownloadIndex, String> {
+    let path = index_path(root);
+    if !path.is_file() {
+        return Ok(DownloadIndex {
+            version: 1,
+            entries: Default::default(),
+        });
+    }
+    let text = fs::read_to_string(&path)
+        .await
+        .map_err(|e| format!("读取下载索引失败: {e}"))?;
+    let mut index: DownloadIndex =
+        serde_json::from_str(&text).map_err(|e| format!("解析下载索引失败: {e}"))?;
+    if index.version == 0 {
+        index.version = 1;
+    }
+    Ok(index)
+}
+
+async fn save_index(root: &Path, index: &DownloadIndex) -> Result<(), String> {
+    fs::create_dir_all(root)
+        .await
+        .map_err(|e| format!("创建下载目录失败: {e}"))?;
+    let path = index_path(root);
+    let text = serde_json::to_string_pretty(index).map_err(|e| format!("序列化索引失败: {e}"))?;
+    fs::write(&path, text)
+        .await
+        .map_err(|e| format!("写入下载索引失败: {e}"))?;
+    Ok(())
+}
+
+async fn upsert_index_entry(root: &Path, entry: BiliDownloadedEntry) -> Result<(), String> {
+    let _guard = index_lock().lock().await;
+    let mut index = load_index(root).await?;
+    index.version = 1;
+    index.entries.insert(entry.song_id.to_string(), entry);
+    save_index(root, &index).await
 }
 
 async fn get_json(url: &str) -> Result<Value, String> {
@@ -545,14 +614,47 @@ fn mux_av(ffmpeg: &Path, video: &Path, audio: &Path, output: &Path) -> Result<()
 }
 
 #[tauri::command]
+pub async fn bilibili_list_downloaded(app: AppHandle) -> Result<Vec<BiliDownloadedEntry>, String> {
+    let root = resolve_download_root(&app)?;
+    let _guard = index_lock().lock().await;
+    let mut index = load_index(&root).await?;
+    let mut alive = Vec::new();
+    let mut changed = false;
+    let keys: Vec<String> = index.entries.keys().cloned().collect();
+    for key in keys {
+        let Some(entry) = index.entries.get(&key).cloned() else {
+            continue;
+        };
+        if Path::new(&entry.path).is_file() {
+            alive.push(entry);
+        } else {
+            index.entries.remove(&key);
+            changed = true;
+        }
+    }
+    if changed {
+        save_index(&root, &index).await?;
+    }
+    alive.sort_by_key(|e| e.song_id);
+    Ok(alive)
+}
+
+#[tauri::command]
 pub async fn bilibili_download(
     app: AppHandle,
     bvid: String,
+    song_id: u64,
+    playlist_id: Option<u64>,
+    playlist_name: Option<String>,
     preferred_title: Option<String>,
+    artists: Option<String>,
 ) -> Result<BiliDownloadResult, String> {
     let bvid = bvid.trim().to_string();
     if bvid.is_empty() {
         return Err("bvid 为空".into());
+    }
+    if song_id == 0 {
+        return Err("songId 无效".into());
     }
 
     let view = get_json(&format!(
@@ -590,7 +692,14 @@ pub async fn bilibili_download(
         return Err(format!("取流失败 ({play_code}): {msg}"));
     }
 
-    let out_dir = resolve_download_dir(&app)?;
+    let root = resolve_download_root(&app)?;
+    let playlist_folder = sanitize_filename(
+        playlist_name
+            .as_deref()
+            .filter(|s| !s.trim().is_empty())
+            .unwrap_or("未分类"),
+    );
+    let out_dir = root.join(&playlist_folder);
     fs::create_dir_all(&out_dir)
         .await
         .map_err(|e| format!("创建下载目录失败: {e}"))?;
@@ -601,7 +710,7 @@ pub async fn bilibili_download(
             .filter(|s| !s.trim().is_empty())
             .unwrap_or(&title),
     );
-    let output = out_dir.join(format!("{stem}-{bvid}.mp4"));
+    let output = out_dir.join(format!("{song_id}_{stem}-{bvid}.mp4"));
 
     if let Some(dash) = play.pointer("/data/dash") {
         let videos = dash
@@ -654,9 +763,30 @@ pub async fn bilibili_download(
         return Err("未获取到可下载流（可能被风控或需登录）".into());
     }
 
+    let downloaded_at = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let path_str = output.to_string_lossy().to_string();
+    upsert_index_entry(
+        &root,
+        BiliDownloadedEntry {
+            song_id,
+            playlist_id,
+            playlist_name,
+            path: path_str.clone(),
+            bvid: bvid.clone(),
+            title: preferred_title.clone().unwrap_or(title.clone()),
+            artists,
+            downloaded_at,
+        },
+    )
+    .await?;
+
     Ok(BiliDownloadResult {
-        path: output.to_string_lossy().to_string(),
+        path: path_str,
         bvid,
         title,
+        song_id,
     })
 }

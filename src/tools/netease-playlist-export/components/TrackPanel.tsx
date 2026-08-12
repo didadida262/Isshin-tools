@@ -8,6 +8,7 @@ import {
   faSpinner,
   faFolderOpen,
   faSatelliteDish,
+  faCircleCheck,
 } from '@fortawesome/free-solid-svg-icons'
 import { motion } from 'framer-motion'
 import gsap from 'gsap'
@@ -16,6 +17,7 @@ import { TrackListSkeleton } from '@/components/Skeleton'
 import { useToast } from '@/components/Toast'
 import { buildExportRows } from '../export/exportMetadata'
 import { exportPlaylistFile, revealExport } from '../export/saveExport'
+import { useDownloadedTracks } from '../hooks/useDownloadedTracks'
 import type { ExportFormat, NeteasePlaylist, NeteaseTrack } from '../types'
 import { ResourceSniffDialog } from './ResourceSniffDialog'
 
@@ -48,6 +50,7 @@ export function TrackPanel({
   const [lastPath, setLastPath] = useState<string | null>(null)
   const [sniffTrack, setSniffTrack] = useState<NeteaseTrack | null>(null)
   const exportBtnRef = useRef<HTMLDivElement>(null)
+  const { bySongId, markDownloaded } = useDownloadedTracks()
 
   const filtered = useMemo(() => {
     const q = filter.trim().toLowerCase()
@@ -59,6 +62,14 @@ export function TrackPanel({
         t.album.toLowerCase().includes(q),
     )
   }, [tracks, filter])
+
+  const downloadedCount = useMemo(() => {
+    let n = 0
+    for (const t of tracks) {
+      if (bySongId.has(t.songId)) n += 1
+    }
+    return n
+  }, [tracks, bySongId])
 
   const handleExport = async (format: ExportFormat) => {
     if (!playlist) return
@@ -95,7 +106,9 @@ export function TrackPanel({
             </h3>
             <p className="mt-0.5 text-[11px] text-subtle">
               {playlist
-                ? `${tracks.length} 首 · 元数据导出 / B站资源嗅探`
+                ? `${tracks.length} 首 · 元数据导出 / B站资源嗅探${
+                    downloadedCount > 0 ? ` · 已下载 ${downloadedCount}` : ''
+                  }`
                 : '选择左侧歌单查看曲目'}
             </p>
           </div>
@@ -168,10 +181,10 @@ export function TrackPanel({
           <table className="w-full table-fixed text-left text-xs">
             <colgroup>
               <col style={{ width: '2.5rem' }} />
-              <col style={{ width: '30%' }} />
+              <col style={{ width: '28%' }} />
               <col />
               <col style={{ width: '3.5rem' }} />
-              <col style={{ width: '4.5rem' }} />
+              <col style={{ width: '6.5rem' }} />
             </colgroup>
             <thead className="sticky top-0 z-10 bg-surface/95 backdrop-blur-sm">
               <tr className="border-b border-border-subtle text-[10px] uppercase tracking-wider text-subtle">
@@ -183,40 +196,60 @@ export function TrackPanel({
               </tr>
             </thead>
             <tbody>
-              {filtered.map((track, index) => (
-                <motion.tr
-                  key={track.songId}
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  transition={{ delay: Math.min(index * 0.008, 0.15) }}
-                  className="border-b border-border-subtle/60 transition-colors duration-200 hover:bg-surface-hover/50"
-                >
-                  <td className="px-3 py-2.5 tabular-nums text-subtle">{index + 1}</td>
-                  <td className="min-w-0 px-2 py-2.5">
-                    <p className="truncate font-medium text-foreground">{track.name}</p>
-                    <p className="mt-0.5 truncate text-[11px] text-subtle">
-                      {track.artists || '未知歌手'}
-                    </p>
-                  </td>
-                  <td className="min-w-0 truncate px-2 py-2.5 text-muted">
-                    {track.album || '—'}
-                  </td>
-                  <td className="px-3 py-2.5 text-right tabular-nums text-subtle">
-                    {formatDuration(track.durationMs)}
-                  </td>
-                  <td className="px-2 py-2.5 text-center">
-                    <button
-                      type="button"
-                      onClick={() => setSniffTrack(track)}
-                      className="inline-flex h-7 items-center justify-center gap-1 rounded-lg px-1.5 text-[11px] text-muted transition-colors duration-200 hover:bg-background hover:text-foreground"
-                      title="资源嗅探"
-                      aria-label={`嗅探 ${track.name}`}
-                    >
-                      <FontAwesomeIcon icon={faSatelliteDish} className="h-3 w-3" />
-                    </button>
-                  </td>
-                </motion.tr>
-              ))}
+              {filtered.map((track, index) => {
+                const downloaded = bySongId.get(track.songId)
+                return (
+                  <motion.tr
+                    key={track.songId}
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    transition={{ delay: Math.min(index * 0.008, 0.15) }}
+                    className="border-b border-border-subtle/60 transition-colors duration-200 hover:bg-surface-hover/50"
+                  >
+                    <td className="px-3 py-2.5 tabular-nums text-subtle">{index + 1}</td>
+                    <td className="min-w-0 px-2 py-2.5">
+                      <div className="flex min-w-0 items-start gap-1.5">
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate font-medium text-foreground">{track.name}</p>
+                          <p className="mt-0.5 truncate text-[11px] text-subtle">
+                            {track.artists || '未知歌手'}
+                          </p>
+                        </div>
+                        {downloaded && (
+                          <span
+                            className="mt-0.5 inline-flex shrink-0 items-center gap-1 rounded-md bg-success/15 px-1.5 py-0.5 text-[10px] font-medium text-success"
+                            title={downloaded.path}
+                          >
+                            <FontAwesomeIcon icon={faCircleCheck} className="h-2.5 w-2.5" />
+                            已下载
+                          </span>
+                        )}
+                      </div>
+                    </td>
+                    <td className="min-w-0 truncate px-2 py-2.5 text-muted">
+                      {track.album || '—'}
+                    </td>
+                    <td className="px-3 py-2.5 text-right tabular-nums text-subtle">
+                      {formatDuration(track.durationMs)}
+                    </td>
+                    <td className="px-2 py-2.5 text-center">
+                      <button
+                        type="button"
+                        onClick={() => setSniffTrack(track)}
+                        className={`inline-flex h-7 items-center justify-center gap-1 rounded-lg px-1.5 text-[11px] transition-colors duration-200 hover:bg-background ${
+                          downloaded
+                            ? 'text-success hover:text-success'
+                            : 'text-muted hover:text-foreground'
+                        }`}
+                        title={downloaded ? `已下载 · ${downloaded.path}` : '资源嗅探'}
+                        aria-label={`嗅探 ${track.name}`}
+                      >
+                        <FontAwesomeIcon icon={faSatelliteDish} className="h-3 w-3" />
+                      </button>
+                    </td>
+                  </motion.tr>
+                )
+              })}
             </tbody>
           </table>
         )}
@@ -225,7 +258,9 @@ export function TrackPanel({
       <ResourceSniffDialog
         open={sniffTrack !== null}
         track={sniffTrack}
+        playlist={playlist}
         onClose={() => setSniffTrack(null)}
+        onDownloaded={markDownloaded}
       />
     </section>
   )
