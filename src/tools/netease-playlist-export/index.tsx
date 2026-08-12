@@ -26,7 +26,7 @@ export function NeteasePlaylistExportTool() {
     <div className="flex h-full flex-col gap-4 overflow-hidden p-5 md:p-6">
       <header className="shrink-0">
         <h1 className="font-display text-xl font-semibold tracking-tight text-foreground">
-          网易云音乐歌单导出
+          网易B站结合体
         </h1>
         <p className="mt-1 text-xs text-muted">
           导出歌名、歌手、专辑等基础元数据 · JSON / CSV · B站资源嗅探

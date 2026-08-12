@@ -259,6 +259,7 @@ export function TrackPanel({
         open={sniffTrack !== null}
         track={sniffTrack}
         playlist={playlist}
+        downloadedEntry={sniffTrack ? bySongId.get(sniffTrack.songId) ?? null : null}
         onClose={() => setSniffTrack(null)}
         onDownloaded={markDownloaded}
       />

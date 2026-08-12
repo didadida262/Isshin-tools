@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import { AnimatePresence, motion } from 'framer-motion'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
 import {
+  faCircleCheck,
   faDownload,
   faFolderOpen,
   faSpinner,
@@ -22,6 +23,7 @@ interface ResourceSniffDialogProps {
   open: boolean
   track: NeteaseTrack | null
   playlist: NeteasePlaylist | null
+  downloadedEntry?: BiliDownloadedEntry | null
   onClose: () => void
   onDownloaded?: (entry: BiliDownloadedEntry) => void
 }
@@ -44,6 +46,7 @@ export function ResourceSniffDialog({
   open,
   track,
   playlist,
+  downloadedEntry = null,
   onClose,
   onDownloaded,
 }: ResourceSniffDialogProps) {
@@ -152,7 +155,7 @@ export function ResourceSniffDialog({
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 8, scale: 0.98 }}
             transition={{ duration: 0.18, ease: 'easeOut' }}
-            className="relative z-10 flex max-h-[min(88vh,720px)] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-border bg-surface shadow-xl"
+            className="relative z-10 flex h-[min(88vh,720px)] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-border bg-surface shadow-xl"
           >
             <div className="flex shrink-0 items-start justify-between gap-3 border-b border-border-subtle px-5 py-4">
               <div className="min-w-0">
@@ -181,28 +184,39 @@ export function ResourceSniffDialog({
 
             <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
               {loading && (
-                <p className="flex items-center gap-2 text-xs text-muted" role="status">
-                  <FontAwesomeIcon icon={faSpinner} className="h-3 w-3 animate-spin" />
+                <div
+                  className="flex h-full min-h-[12rem] items-center justify-center gap-2 text-xs text-muted"
+                  role="status"
+                >
+                  <FontAwesomeIcon icon={faSpinner} className="h-3.5 w-3.5 animate-spin" />
                   正在 B 站搜索…
-                </p>
+                </div>
               )}
               {error && !loading && (
-                <p className="text-xs text-danger" role="alert">
-                  {error}
-                </p>
+                <div className="flex h-full min-h-[12rem] items-center justify-center px-6" role="alert">
+                  <p className="text-center text-xs text-danger">{error}</p>
+                </div>
               )}
               {!loading && !error && items.length === 0 && (
-                <p className="text-xs text-muted">未找到相关稿件</p>
+                <div className="flex h-full min-h-[12rem] items-center justify-center">
+                  <p className="text-xs text-muted">未找到相关稿件</p>
+                </div>
               )}
               {!loading && items.length > 0 && (
                 <ul className="space-y-2">
                   {items.map((item) => {
                     const delta = formatDelta(item.durationDeltaMs)
                     const busy = downloadingBvid === item.bvid
+                    const alreadyDownloaded =
+                      !!downloadedEntry && downloadedEntry.bvid === item.bvid
                     return (
                       <li
                         key={item.bvid}
-                        className="flex gap-3 rounded-xl border border-border-subtle bg-background/40 p-3"
+                        className={`flex gap-3 rounded-xl border p-3 transition-colors duration-200 ${
+                          alreadyDownloaded
+                            ? 'border-success/40 bg-success/10'
+                            : 'border-border-subtle bg-background/40'
+                        }`}
                       >
                         {item.cover ? (
                           <img
@@ -236,20 +250,35 @@ export function ResourceSniffDialog({
                         </div>
                         <button
                           type="button"
-                          disabled={downloadingBvid !== null}
+                          disabled={alreadyDownloaded || downloadingBvid !== null}
                           onClick={() => void handleDownload(item)}
                           aria-busy={busy}
-                          className={`inline-flex h-8 w-[4.75rem] shrink-0 items-center justify-center gap-1.5 self-center rounded-xl border px-2 text-[11px] transition-all duration-200 ${
-                            busy
-                              ? 'cursor-wait border-muted bg-surface-hover text-foreground'
-                              : 'border-border bg-surface text-foreground hover:border-muted hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-40'
+                          title={
+                            alreadyDownloaded
+                              ? downloadedEntry?.path ?? '已下载'
+                              : undefined
+                          }
+                          className={`inline-flex h-8 w-[5rem] shrink-0 items-center justify-center gap-1.5 self-center rounded-xl border px-2 text-[11px] transition-all duration-200 ${
+                            alreadyDownloaded
+                              ? 'cursor-default border-success/35 bg-success/15 text-success'
+                              : busy
+                                ? 'cursor-wait border-muted bg-surface-hover text-foreground'
+                                : 'border-border bg-surface text-foreground hover:border-muted hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-40'
                           }`}
                         >
                           <FontAwesomeIcon
-                            icon={busy ? faSpinner : faDownload}
+                            icon={
+                              alreadyDownloaded
+                                ? faCircleCheck
+                                : busy
+                                  ? faSpinner
+                                  : faDownload
+                            }
                             className={`h-3 w-3 shrink-0 ${busy ? 'animate-spin' : ''}`}
                           />
-                          <span className="leading-none">{busy ? '下载中' : '下载'}</span>
+                          <span className="leading-none">
+                            {alreadyDownloaded ? '已下载' : busy ? '下载中' : '下载'}
+                          </span>
                         </button>
                       </li>
                     )

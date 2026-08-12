@@ -23,7 +23,7 @@ export const toolsRegistry: ToolDefinition[] = [
   },
   {
     id: 'netease-playlist-export',
-    name: '网易云歌单导出',
+    name: '网易B站结合体',
     description: '歌单元数据导出，支持 B 站资源嗅探',
     icon: faMusic,
     component: NeteasePlaylistExportTool,
