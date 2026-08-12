@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { readFile } from '@tauri-apps/plugin-fs'
 import { AnimatePresence, motion } from 'framer-motion'
@@ -149,6 +149,25 @@ export function AwemePanel({
   }
 
   const selectedDownloaded = selected ? downloadedById.get(selected.awemeId) : undefined
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const sentinelRef = useRef<HTMLDivElement>(null)
+  const onLoadMoreRef = useRef(onLoadMore)
+  onLoadMoreRef.current = onLoadMore
+
+  useEffect(() => {
+    const root = scrollRef.current
+    const sentinel = sentinelRef.current
+    if (!root || !sentinel || !hasMore || loading) return
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting)) onLoadMoreRef.current()
+      },
+      { root, rootMargin: '120px 0px', threshold: 0 },
+    )
+    observer.observe(sentinel)
+    return () => observer.disconnect()
+  }, [hasMore, loading, items.length])
 
   return (
     <>
@@ -162,7 +181,7 @@ export function AwemePanel({
           </p>
         </header>
 
-        <div className="min-h-0 flex-1 overflow-y-auto">
+        <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto">
           {loading && items.length === 0 && (
             <p className="px-4 py-10 text-center text-xs text-muted">加载中…</p>
           )}
@@ -246,20 +265,22 @@ export function AwemePanel({
               </tbody>
             </table>
           )}
-        </div>
 
-        {hasMore && (
-          <div className="shrink-0 border-t border-border-subtle p-3">
-            <button
-              type="button"
-              disabled={loading}
-              onClick={() => void onLoadMore()}
-              className="w-full rounded-xl border border-border bg-background py-2 text-xs text-foreground transition-colors hover:bg-surface-hover disabled:opacity-40"
-            >
-              {loading ? '加载中…' : '加载更多'}
-            </button>
-          </div>
-        )}
+          {items.length > 0 && (
+            <div ref={sentinelRef} className="flex h-10 items-center justify-center">
+              {hasMore ? (
+                <p className="flex items-center gap-1.5 text-[11px] text-subtle">
+                  {loading && (
+                    <FontAwesomeIcon icon={faSpinner} className="h-2.5 w-2.5 animate-spin" />
+                  )}
+                  {loading ? '加载中…' : ''}
+                </p>
+              ) : (
+                <p className="text-[11px] text-subtle">已加载全部</p>
+              )}
+            </div>
+          )}
+        </div>
       </section>
 
       {typeof document !== 'undefined' &&
