@@ -9,6 +9,8 @@
     "fs:default",
     "fs:allow-write-text-file",
     "fs:allow-mkdir",
+    "fs:allow-read-file",
+    "fs:allow-exists",
     {
       "identifier": "fs:scope",
       "allow": [{ "path": "**" }]
@@ -19,6 +21,7 @@
     "allow-netease",
     "allow-video-trim",
     "allow-bilibili",
+    "allow-douyin",
     "dialog:allow-open",
     {
       "identifier": "http:allow-fetch",

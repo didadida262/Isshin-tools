@@ -12,6 +12,7 @@ const httpPermissionsPath = join(root, 'src-tauri/permissions/http-get-text.toml
 const neteasePermissionsPath = join(root, 'src-tauri/permissions/netease.toml')
 const videoTrimPermissionsPath = join(root, 'src-tauri/permissions/video-trim.toml')
 const bilibiliPermissionsPath = join(root, 'src-tauri/permissions/bilibili.toml')
+const douyinPermissionsPath = join(root, 'src-tauri/permissions/douyin.toml')
 
 if (!existsSync(capabilitiesPath)) {
   console.error('[verify-tauri-acl] 缺少 src-tauri/capabilities/default.json')
@@ -30,6 +31,7 @@ const required = [
   'allow-netease',
   'allow-video-trim',
   'allow-bilibili',
+  'allow-douyin',
 ]
 for (const id of required) {
   const found = capabilities.permissions.some(
@@ -58,6 +60,11 @@ if (!existsSync(videoTrimPermissionsPath)) {
 
 if (!existsSync(bilibiliPermissionsPath)) {
   console.error('[verify-tauri-acl] 缺少 src-tauri/permissions/bilibili.toml')
+  process.exit(1)
+}
+
+if (!existsSync(douyinPermissionsPath)) {
+  console.error('[verify-tauri-acl] 缺少 src-tauri/permissions/douyin.toml')
   process.exit(1)
 }
 

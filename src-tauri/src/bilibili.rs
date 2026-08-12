@@ -267,7 +267,7 @@ fn sanitize_filename(name: &str) -> String {
 fn resolve_download_root(app: &AppHandle) -> Result<PathBuf, String> {
     let from_manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .parent()
-        .map(|root| root.join("downloads").join("bilibili-sniff"));
+        .map(|root| root.join("downloads").join("网易云音乐"));
     if let Some(dir) = from_manifest {
         let marker = dir
             .parent()
@@ -282,7 +282,7 @@ fn resolve_download_root(app: &AppHandle) -> Result<PathBuf, String> {
         .path()
         .app_local_data_dir()
         .map_err(|e| format!("无法解析应用数据目录: {e}"))?;
-    Ok(base.join("downloads").join("bilibili-sniff"))
+    Ok(base.join("downloads").join("网易云音乐"))
 }
 
 fn index_path(root: &Path) -> PathBuf {

@@ -120,7 +120,7 @@ export function ResourceSniffDialog({
         artists: track.artists || null,
         downloadedAt: Math.floor(Date.now() / 1000),
       })
-      const folder = playlist?.name ? `downloads/bilibili-sniff/${playlist.name}` : 'downloads/bilibili-sniff'
+      const folder = playlist?.name ? `downloads/网易云音乐/${playlist.name}` : 'downloads/网易云音乐'
       toast(`已下载到 ${folder}`, 'success')
     } catch (e) {
       toast(e instanceof Error ? e.message : String(e), 'danger')

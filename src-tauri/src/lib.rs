@@ -1,4 +1,5 @@
 mod bilibili;
+mod douyin;
 mod http_fetch;
 mod netease;
 mod video_trim;
@@ -48,7 +49,14 @@ pub fn run() {
             video_trim::trim_video_end,
             bilibili::bilibili_search,
             bilibili::bilibili_download,
-            bilibili::bilibili_list_downloaded
+            bilibili::bilibili_list_downloaded,
+            douyin::douyin_login_cookie,
+            douyin::douyin_qr_start,
+            douyin::douyin_qr_poll,
+            douyin::douyin_list_aweme,
+            douyin::douyin_download,
+            douyin::douyin_list_downloaded,
+            douyin::douyin_cache_preview
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

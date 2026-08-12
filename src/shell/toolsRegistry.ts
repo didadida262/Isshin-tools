@@ -1,9 +1,10 @@
 import type { ComponentType } from 'react'
 import type { IconDefinition } from '@fortawesome/fontawesome-svg-core'
-import { faChartLine, faMusic, faScissors } from '@fortawesome/free-solid-svg-icons'
+import { faChartLine, faMusic, faScissors, faDownload } from '@fortawesome/free-solid-svg-icons'
 import { NeteasePlaylistExportTool } from '@/tools/netease-playlist-export'
 import { GoldFactorsTool } from '@/tools/gold-factors'
 import { DouyinTrimEndTool } from '@/tools/douyin-trim-end'
+import { DouyinDownloaderTool } from '@/tools/douyin-downloader'
 
 export interface ToolDefinition {
   id: string
@@ -23,10 +24,17 @@ export const toolsRegistry: ToolDefinition[] = [
   },
   {
     id: 'netease-playlist-export',
-    name: '网易B站结合体',
+    name: '网易云音乐下载器',
     description: '歌单元数据导出，支持 B 站资源嗅探',
     icon: faMusic,
     component: NeteasePlaylistExportTool,
+  },
+  {
+    id: 'douyin-downloader',
+    name: '抖音下载器',
+    description: '作品 / 喜欢列表 · 预览与下载',
+    icon: faDownload,
+    component: DouyinDownloaderTool,
   },
   {
     id: 'douyin-trim-end',

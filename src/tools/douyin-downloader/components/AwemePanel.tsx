@@ -1,0 +1,390 @@
+import { useEffect, useState } from 'react'
+import { createPortal } from 'react-dom'
+import { readFile } from '@tauri-apps/plugin-fs'
+import { AnimatePresence, motion } from 'framer-motion'
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
+import {
+  faCircleCheck,
+  faDownload,
+  faFolderOpen,
+  faSpinner,
+  faXmark,
+} from '@fortawesome/free-solid-svg-icons'
+import { revealItemInDir } from '@tauri-apps/plugin-opener'
+import { ErrorState } from '@/components/ErrorState'
+import { useToast } from '@/components/Toast'
+import { cachePreview, downloadAweme } from '../api/douyinApi'
+import type { DouyinAweme, DouyinDownloadedEntry, DouyinListKind } from '../types'
+
+interface AwemePanelProps {
+  kind: DouyinListKind
+  cookie: string
+  items: DouyinAweme[]
+  loading: boolean
+  error: string | null
+  hasMore: boolean
+  downloadedById: Map<string, DouyinDownloadedEntry>
+  onRetry: () => void
+  onLoadMore: () => void
+  onDownloaded: (entry: DouyinDownloadedEntry) => void
+}
+
+function formatDuration(ms: number) {
+  if (!ms) return '—'
+  const total = Math.floor(ms / 1000)
+  const m = Math.floor(total / 60)
+  const s = total % 60
+  return `${m}:${String(s).padStart(2, '0')}`
+}
+
+function formatCount(n: number) {
+  if (n >= 100_000_000) return `${(n / 100_000_000).toFixed(1)}亿`
+  if (n >= 10_000) return `${(n / 10_000).toFixed(1)}万`
+  return String(n)
+}
+
+export function AwemePanel({
+  kind,
+  cookie,
+  items,
+  loading,
+  error,
+  hasMore,
+  downloadedById,
+  onRetry,
+  onLoadMore,
+  onDownloaded,
+}: AwemePanelProps) {
+  const { toast } = useToast()
+  const [selected, setSelected] = useState<DouyinAweme | null>(null)
+  const [downloading, setDownloading] = useState(false)
+  const [lastPath, setLastPath] = useState<string | null>(null)
+  const [previewSrc, setPreviewSrc] = useState<string | null>(null)
+  const [previewLoading, setPreviewLoading] = useState(false)
+  const [previewError, setPreviewError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!selected) {
+      setPreviewSrc((prev) => {
+        if (prev?.startsWith('blob:')) URL.revokeObjectURL(prev)
+        return null
+      })
+      setPreviewError(null)
+      setPreviewLoading(false)
+      return
+    }
+    let cancelled = false
+    let objectUrl: string | null = null
+    setPreviewLoading(true)
+    setPreviewError(null)
+    setPreviewSrc((prev) => {
+      if (prev?.startsWith('blob:')) URL.revokeObjectURL(prev)
+      return null
+    })
+    void (async () => {
+      try {
+        const path = await cachePreview({
+          cookie,
+          awemeId: selected.awemeId,
+          playUrl: selected.playUrl,
+        })
+        // blob URL：WKWebView 下 convertFileSrc(asset://) 经常无法播放本地 mp4
+        const bytes = await readFile(path)
+        if (cancelled) return
+        const blob = new Blob([bytes], { type: 'video/mp4' })
+        objectUrl = URL.createObjectURL(blob)
+        setPreviewSrc(objectUrl)
+      } catch (e) {
+        if (cancelled) return
+        setPreviewError(e instanceof Error ? e.message : String(e))
+      } finally {
+        if (!cancelled) setPreviewLoading(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+      if (objectUrl) URL.revokeObjectURL(objectUrl)
+    }
+  }, [selected, cookie])
+
+  useEffect(() => {
+    if (!selected) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setSelected(null)
+    }
+    window.addEventListener('keydown', onKey)
+    const prev = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => {
+      window.removeEventListener('keydown', onKey)
+      document.body.style.overflow = prev
+    }
+  }, [selected])
+
+  const handleDownload = async (item: DouyinAweme) => {
+    if (downloadedById.has(item.awemeId) || downloading) return
+    setDownloading(true)
+    try {
+      const result = await downloadAweme({
+        cookie,
+        awemeId: item.awemeId,
+        playUrl: item.playUrl,
+        title: item.desc || item.awemeId,
+        kind,
+      })
+      setLastPath(result.path)
+      onDownloaded({
+        awemeId: item.awemeId,
+        kind: kind === 'favorite' ? 'likes' : 'works',
+        path: result.path,
+        title: item.desc || item.awemeId,
+        downloadedAt: Math.floor(Date.now() / 1000),
+      })
+      toast(`已下载到 downloads/抖音/${kind === 'favorite' ? 'likes' : 'works'}`, 'success')
+    } catch (e) {
+      toast(e instanceof Error ? e.message : String(e), 'danger')
+    } finally {
+      setDownloading(false)
+    }
+  }
+
+  const selectedDownloaded = selected ? downloadedById.get(selected.awemeId) : undefined
+
+  return (
+    <>
+      <section className="flex h-full min-h-0 flex-col overflow-hidden rounded-2xl border border-border-subtle bg-surface/60">
+        <header className="shrink-0 border-b border-border-subtle px-4 py-3">
+          <p className="text-sm font-medium text-foreground">
+            {kind === 'favorite' ? '喜欢' : '作品'}
+          </p>
+          <p className="mt-0.5 text-[11px] text-subtle">
+            {items.length} 条已加载 · 点击条目预览
+          </p>
+        </header>
+
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          {loading && items.length === 0 && (
+            <p className="px-4 py-10 text-center text-xs text-muted">加载中…</p>
+          )}
+          {!loading && error && (
+            <div className="p-4">
+              <ErrorState message={error} onRetry={onRetry} title="列表加载失败" />
+            </div>
+          )}
+          {!loading && !error && items.length === 0 && (
+            <p className="px-4 py-10 text-center text-xs text-muted">暂无内容</p>
+          )}
+          {items.length > 0 && (
+            <table className="w-full table-fixed text-left text-xs">
+              <colgroup>
+                <col style={{ width: '3.25rem' }} />
+                <col />
+                <col style={{ width: '5.5rem' }} />
+                <col style={{ width: '4rem' }} />
+                <col style={{ width: '5rem' }} />
+              </colgroup>
+              <thead className="sticky top-0 z-10 bg-surface/95 backdrop-blur-sm">
+                <tr className="border-b border-border-subtle text-[10px] uppercase tracking-wider text-subtle">
+                  <th className="px-3 py-2 font-medium">封面</th>
+                  <th className="px-2 py-2 font-medium">内容</th>
+                  <th className="px-2 py-2 font-medium">作者</th>
+                  <th className="px-2 py-2 text-right font-medium">时长</th>
+                  <th className="px-3 py-2 text-right font-medium">状态</th>
+                </tr>
+              </thead>
+              <tbody>
+                {items.map((item, index) => {
+                  const downloaded = downloadedById.get(item.awemeId)
+                  return (
+                    <tr
+                      key={item.awemeId}
+                      onClick={() => setSelected(item)}
+                      className="cursor-pointer border-b border-border-subtle/60 transition-colors duration-200 hover:bg-surface-hover/50"
+                    >
+                      <td className="px-3 py-2.5">
+                        {item.coverUrl ? (
+                          <img
+                            src={item.coverUrl}
+                            alt=""
+                            className="h-10 w-8 rounded-md object-cover"
+                            loading="lazy"
+                            referrerPolicy="no-referrer"
+                          />
+                        ) : (
+                          <div className="h-10 w-8 rounded-md bg-surface-hover" />
+                        )}
+                      </td>
+                      <td className="min-w-0 px-2 py-2.5">
+                        <p className="line-clamp-2 font-medium text-foreground">
+                          {item.desc || `未命名 ${index + 1}`}
+                        </p>
+                        <p className="mt-0.5 truncate text-[11px] text-subtle">
+                          {formatCount(item.diggCount)} 赞
+                        </p>
+                      </td>
+                      <td className="truncate px-2 py-2.5 text-muted">
+                        {item.authorName || '—'}
+                      </td>
+                      <td className="px-2 py-2.5 text-right tabular-nums text-subtle">
+                        {formatDuration(item.durationMs)}
+                      </td>
+                      <td className="px-3 py-2.5 text-right">
+                        {downloaded ? (
+                          <span className="inline-flex items-center gap-1 text-[10px] font-medium text-success">
+                            <FontAwesomeIcon icon={faCircleCheck} className="h-2.5 w-2.5" />
+                            已下载
+                          </span>
+                        ) : (
+                          <span className="text-[10px] text-subtle">—</span>
+                        )}
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          )}
+        </div>
+
+        {hasMore && (
+          <div className="shrink-0 border-t border-border-subtle p-3">
+            <button
+              type="button"
+              disabled={loading}
+              onClick={() => void onLoadMore()}
+              className="w-full rounded-xl border border-border bg-background py-2 text-xs text-foreground transition-colors hover:bg-surface-hover disabled:opacity-40"
+            >
+              {loading ? '加载中…' : '加载更多'}
+            </button>
+          </div>
+        )}
+      </section>
+
+      {typeof document !== 'undefined' &&
+        createPortal(
+          <AnimatePresence>
+            {selected && (
+              <motion.div
+                className="fixed inset-0 z-50 flex items-center justify-center p-4"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.16 }}
+              >
+                <button
+                  type="button"
+                  aria-label="关闭"
+                  className="absolute inset-0 bg-black/55"
+                  onClick={() => setSelected(null)}
+                />
+                <motion.div
+                  role="dialog"
+                  aria-modal="true"
+                  aria-labelledby="aweme-preview-title"
+                  initial={{ opacity: 0, y: 10, scale: 0.98 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: 8, scale: 0.98 }}
+                  transition={{ duration: 0.18, ease: 'easeOut' }}
+                  className="relative z-10 flex max-h-[min(88vh,720px)] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-border bg-surface shadow-xl"
+                >
+                  <div className="flex shrink-0 items-start justify-between gap-3 border-b border-border-subtle px-5 py-4">
+                    <div className="min-w-0">
+                      <h2
+                        id="aweme-preview-title"
+                        className="font-display text-base font-semibold tracking-tight text-foreground"
+                      >
+                        视频预览
+                      </h2>
+                      <p className="mt-1 line-clamp-2 text-xs text-muted">
+                        {selected.desc || selected.awemeId}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setSelected(null)}
+                      className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-subtle transition-colors hover:bg-surface-hover hover:text-foreground"
+                      aria-label="关闭弹框"
+                    >
+                      <FontAwesomeIcon icon={faXmark} className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+
+                  <div className="flex min-h-0 flex-1 items-center justify-center bg-black/40 p-4">
+                    {previewLoading && (
+                      <p className="flex items-center gap-2 text-xs text-muted">
+                        <FontAwesomeIcon icon={faSpinner} className="h-3 w-3 animate-spin" />
+                        加载预览…
+                      </p>
+                    )}
+                    {!previewLoading && previewError && (
+                      <p className="px-4 text-center text-xs text-danger">{previewError}</p>
+                    )}
+                    {!previewLoading && !previewError && previewSrc ? (
+                      <video
+                        key={previewSrc}
+                        src={previewSrc}
+                        controls
+                        autoPlay
+                        playsInline
+                        className="max-h-[min(56vh,480px)] max-w-full rounded-xl"
+                        poster={selected.coverUrl || undefined}
+                      />
+                    ) : null}
+                  </div>
+
+                  <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-t border-border-subtle px-5 py-3">
+                    <div className="min-w-0 text-[11px] text-subtle">
+                      {selected.authorName || '未知作者'}
+                      <span className="mx-1">·</span>
+                      {formatDuration(selected.durationMs)}
+                      <span className="mx-1">·</span>
+                      {formatCount(selected.diggCount)} 赞
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {(lastPath || selectedDownloaded?.path) && (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            void revealItemInDir(lastPath || selectedDownloaded!.path)
+                          }
+                          className="inline-flex items-center gap-1.5 text-[11px] text-muted transition-colors hover:text-foreground"
+                        >
+                          <FontAwesomeIcon icon={faFolderOpen} className="h-3 w-3" />
+                          打开目录
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        disabled={!!selectedDownloaded || downloading}
+                        onClick={() => void handleDownload(selected)}
+                        className={`inline-flex h-8 min-w-[5.5rem] items-center justify-center gap-1.5 rounded-xl border px-3 text-[11px] transition-all ${
+                          selectedDownloaded
+                            ? 'cursor-default border-success/35 bg-success/15 text-success'
+                            : downloading
+                              ? 'cursor-wait border-muted bg-surface-hover text-foreground'
+                              : 'border-border bg-background text-foreground hover:border-muted hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-40'
+                        }`}
+                      >
+                        <FontAwesomeIcon
+                          icon={
+                            selectedDownloaded
+                              ? faCircleCheck
+                              : downloading
+                                ? faSpinner
+                                : faDownload
+                          }
+                          className={`h-3 w-3 ${downloading ? 'animate-spin' : ''}`}
+                        />
+                        {selectedDownloaded ? '已下载' : downloading ? '下载中' : '下载'}
+                      </button>
+                    </div>
+                  </div>
+                </motion.div>
+              </motion.div>
+            )}
+          </AnimatePresence>,
+          document.body,
+        )}
+    </>
+  )
+}

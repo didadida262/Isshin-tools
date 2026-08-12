@@ -1,0 +1,12 @@
+[[permission]]
+identifier = "allow-douyin"
+description = "Allow Douyin login, works/likes listing, and video download"
+commands.allow = [
+  "douyin_login_cookie",
+  "douyin_qr_start",
+  "douyin_qr_poll",
+  "douyin_list_aweme",
+  "douyin_download",
+  "douyin_list_downloaded",
+  "douyin_cache_preview",
+]
