@@ -18,6 +18,7 @@
     "allow-http-get-text",
     "allow-netease",
     "allow-video-trim",
+    "allow-bilibili",
     "dialog:allow-open",
     {
       "identifier": "http:allow-fetch",

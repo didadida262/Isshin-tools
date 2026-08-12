@@ -1,3 +1,4 @@
+mod bilibili;
 mod http_fetch;
 mod netease;
 mod video_trim;
@@ -44,7 +45,9 @@ pub fn run() {
             netease_qr_url,
             http_fetch::http_get_text,
             video_trim::scan_video_dir,
-            video_trim::trim_video_end
+            video_trim::trim_video_end,
+            bilibili::bilibili_search,
+            bilibili::bilibili_download
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

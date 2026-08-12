@@ -197,13 +197,14 @@ fn build_output_path(input: &Path) -> Result<PathBuf, String> {
         .join(format!("{stem}_trimmed.{ext}")))
 }
 
-fn resolve_ffmpeg() -> Result<PathBuf, String> {
+pub(crate) fn resolve_ffmpeg() -> Result<PathBuf, String> {
     let exe = std::env::current_exe().map_err(|e| format!("无法定位当前程序: {e}"))?;
     let exe_dir = exe
         .parent()
         .ok_or_else(|| "无法解析程序目录".to_string())?
         .to_path_buf();
 
+    #[allow(unused_mut)]
     let mut candidates = vec![
         exe_dir.join("ffmpeg"),
         exe_dir.join(format!("ffmpeg-{TARGET_TRIPLE}")),

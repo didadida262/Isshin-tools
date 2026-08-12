@@ -7,6 +7,7 @@ import {
   faMagnifyingGlass,
   faSpinner,
   faFolderOpen,
+  faSatelliteDish,
 } from '@fortawesome/free-solid-svg-icons'
 import { motion } from 'framer-motion'
 import gsap from 'gsap'
@@ -16,6 +17,7 @@ import { useToast } from '@/components/Toast'
 import { buildExportRows } from '../export/exportMetadata'
 import { exportPlaylistFile, revealExport } from '../export/saveExport'
 import type { ExportFormat, NeteasePlaylist, NeteaseTrack } from '../types'
+import { ResourceSniffDialog } from './ResourceSniffDialog'
 
 interface TrackPanelProps {
   playlist: NeteasePlaylist | null
@@ -44,6 +46,7 @@ export function TrackPanel({
   const [filter, setFilter] = useState('')
   const [exporting, setExporting] = useState<ExportFormat | null>(null)
   const [lastPath, setLastPath] = useState<string | null>(null)
+  const [sniffTrack, setSniffTrack] = useState<NeteaseTrack | null>(null)
   const exportBtnRef = useRef<HTMLDivElement>(null)
 
   const filtered = useMemo(() => {
@@ -92,7 +95,7 @@ export function TrackPanel({
             </h3>
             <p className="mt-0.5 text-[11px] text-subtle">
               {playlist
-                ? `${tracks.length} 首 · 仅元数据`
+                ? `${tracks.length} 首 · 元数据导出 / B站资源嗅探`
                 : '选择左侧歌单查看曲目'}
             </p>
           </div>
@@ -165,9 +168,10 @@ export function TrackPanel({
           <table className="w-full table-fixed text-left text-xs">
             <colgroup>
               <col style={{ width: '2.5rem' }} />
-              <col style={{ width: '32%' }} />
+              <col style={{ width: '30%' }} />
               <col />
               <col style={{ width: '3.5rem' }} />
+              <col style={{ width: '4.5rem' }} />
             </colgroup>
             <thead className="sticky top-0 z-10 bg-surface/95 backdrop-blur-sm">
               <tr className="border-b border-border-subtle text-[10px] uppercase tracking-wider text-subtle">
@@ -175,6 +179,7 @@ export function TrackPanel({
                 <th className="px-2 py-2 font-medium">歌曲</th>
                 <th className="px-2 py-2 font-medium">专辑</th>
                 <th className="px-3 py-2 text-right font-medium">时长</th>
+                <th className="px-2 py-2 text-center font-medium">嗅探</th>
               </tr>
             </thead>
             <tbody>
@@ -199,12 +204,29 @@ export function TrackPanel({
                   <td className="px-3 py-2.5 text-right tabular-nums text-subtle">
                     {formatDuration(track.durationMs)}
                   </td>
+                  <td className="px-2 py-2.5 text-center">
+                    <button
+                      type="button"
+                      onClick={() => setSniffTrack(track)}
+                      className="inline-flex h-7 items-center justify-center gap-1 rounded-lg px-1.5 text-[11px] text-muted transition-colors duration-200 hover:bg-background hover:text-foreground"
+                      title="资源嗅探"
+                      aria-label={`嗅探 ${track.name}`}
+                    >
+                      <FontAwesomeIcon icon={faSatelliteDish} className="h-3 w-3" />
+                    </button>
+                  </td>
                 </motion.tr>
               ))}
             </tbody>
           </table>
         )}
       </div>
+
+      <ResourceSniffDialog
+        open={sniffTrack !== null}
+        track={sniffTrack}
+        onClose={() => setSniffTrack(null)}
+      />
     </section>
   )
 }

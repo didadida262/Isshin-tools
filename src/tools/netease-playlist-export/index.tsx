@@ -29,7 +29,7 @@ export function NeteasePlaylistExportTool() {
           网易云音乐歌单导出
         </h1>
         <p className="mt-1 text-xs text-muted">
-          导出歌名、歌手、专辑等基础元数据 · JSON / CSV
+          导出歌名、歌手、专辑等基础元数据 · JSON / CSV · B站资源嗅探
         </p>
       </header>
 

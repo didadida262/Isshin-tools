@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "allow-bilibili"
+description = "Allow Bilibili search and video/audio download for playlist resource sniffing"
+commands.allow = ["bilibili_search", "bilibili_download"]
