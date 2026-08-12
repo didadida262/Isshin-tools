@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useMemo, useState, type ReactNode } from 'react'
 import { QRCodeSVG } from 'qrcode.react'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
 import {
@@ -10,6 +10,13 @@ import {
 import { motion } from 'framer-motion'
 import type { AuthStatus, NeteaseUserProfile, QrLoginSession } from '../types'
 
+const COOKIE_FIELDS = [
+  { key: 'MUSIC_U', label: 'MUSIC_U', required: true },
+  { key: '__csrf', label: '__csrf', required: false },
+] as const
+
+type CookieFieldKey = (typeof COOKIE_FIELDS)[number]['key']
+
 interface LoginPanelProps {
   status: AuthStatus
   profile: NeteaseUserProfile | null
@@ -18,6 +25,15 @@ interface LoginPanelProps {
   onStartQr: () => void
   onCookieLogin: (cookie: string) => void
   onLogout: () => void
+}
+
+function buildCookie(values: Record<CookieFieldKey, string>) {
+  return COOKIE_FIELDS.map(({ key }) => {
+    const v = values[key].trim()
+    return v ? `${key}=${v}` : null
+  })
+    .filter(Boolean)
+    .join('; ')
 }
 
 export function LoginPanel({
@@ -30,9 +46,13 @@ export function LoginPanel({
   onLogout,
 }: LoginPanelProps) {
   const [mode, setMode] = useState<'qr' | 'cookie'>('qr')
-  const [cookieInput, setCookieInput] = useState('MUSIC_U=; __csrf=')
+  const [values, setValues] = useState<Record<CookieFieldKey, string>>({
+    MUSIC_U: '',
+    __csrf: '',
+  })
   const busy = status === 'logging-in'
-  const cookieReady = /(?:^|;\s*)MUSIC_U=[^;\s]+/i.test(cookieInput)
+  const cookieReady = values.MUSIC_U.trim().length > 0
+  const cookieString = useMemo(() => buildCookie(values), [values])
 
   if (status === 'authenticated' && profile) {
     return (
@@ -135,26 +155,44 @@ export function LoginPanel({
           </div>
         ) : (
           <div className="space-y-3">
-            <label className="block text-xs text-muted" htmlFor="cookie-input">
-              粘贴浏览器 Cookie（MUSIC_U 必填，建议带上 __csrf）
-            </label>
-            <textarea
-              id="cookie-input"
-              value={cookieInput}
-              onChange={(e) => setCookieInput(e.target.value)}
-              rows={3}
-              placeholder="在 MUSIC_U= 和 __csrf= 后粘贴对应值"
-              className="w-full resize-y rounded-xl border border-border bg-background px-3 py-2 text-xs text-foreground outline-none transition-all duration-200 placeholder:text-subtle focus:border-muted focus:ring-1 focus:ring-border"
-            />
+            <p className="text-xs text-muted">
+              在浏览器 Cookies 里按字段名找到对应项，把{' '}
+              <span className="text-foreground">Value</span> 粘贴到下方（至少填 MUSIC_U）。
+            </p>
+            <div className="space-y-2">
+              {COOKIE_FIELDS.map((field) => (
+                <label
+                  key={field.key}
+                  className="flex items-center gap-2 rounded-xl border border-border bg-background px-3 py-2"
+                  htmlFor={`ne-cookie-${field.key}`}
+                >
+                  <span className="w-28 shrink-0 font-mono text-[11px] text-subtle">
+                    {field.label}
+                    {field.required ? <span className="text-danger"> *</span> : null}=
+                  </span>
+                  <input
+                    id={`ne-cookie-${field.key}`}
+                    value={values[field.key]}
+                    onChange={(e) =>
+                      setValues((prev) => ({ ...prev, [field.key]: e.target.value }))
+                    }
+                    placeholder="粘贴 Value"
+                    autoComplete="off"
+                    spellCheck={false}
+                    className="min-w-0 flex-1 bg-transparent text-xs text-foreground outline-none placeholder:text-subtle"
+                  />
+                </label>
+              ))}
+            </div>
             <p className="text-[11px] leading-relaxed text-subtle">
-              DevTools → Application → Cookies → music.163.com，把{' '}
-              <code className="text-muted">MUSIC_U</code> /{' '}
-              <code className="text-muted">__csrf</code> 的值填到等号后面。连不上时可改用扫码。
+              浏览器登录{' '}
+              <code className="text-muted">music.163.com</code> → F12 → Application → Cookies →
+              点开各字段复制 Value。连不上时可改用扫码。
             </p>
             <button
               type="button"
               disabled={busy || !cookieReady}
-              onClick={() => onCookieLogin(cookieInput)}
+              onClick={() => onCookieLogin(cookieString)}
               className="inline-flex items-center gap-2 rounded-xl bg-accent px-3.5 py-2 text-xs font-medium text-accent-fg transition-all duration-200 ease-in-out hover:opacity-90 disabled:opacity-50"
             >
               {busy ? (
@@ -191,7 +229,7 @@ function ModeTab({
   active: boolean
   onClick: () => void
   icon: typeof faQrcode
-  children: string
+  children: ReactNode
 }) {
   return (
     <button
