@@ -15,7 +15,7 @@ export function SpotHero({ london, shanghai, loading, fetchedAt }: SpotHeroProps
   if (loading && !london && !shanghai) {
     return (
       <div
-        className="rounded-2xl border border-border-subtle bg-surface/50 p-5 md:p-6"
+        className="rounded-2xl border border-border-subtle bg-surface p-5 md:p-6"
         role="status"
         aria-label="金价加载中"
       >
@@ -47,7 +47,7 @@ export function SpotHero({ london, shanghai, loading, fetchedAt }: SpotHeroProps
   }
 
   return (
-    <div className="relative overflow-hidden rounded-2xl border border-border-subtle bg-surface/70 p-5 shadow-sm md:p-6">
+    <div className="relative overflow-hidden rounded-2xl border border-border-subtle bg-surface p-5 shadow-sm md:p-6">
       <div
         aria-hidden
         className="pointer-events-none absolute inset-0 opacity-70"

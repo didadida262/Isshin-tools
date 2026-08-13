@@ -7,6 +7,7 @@ import {
   faCircleCheck,
   faDownload,
   faFolderOpen,
+  faSatelliteDish,
   faSpinner,
   faXmark,
 } from '@fortawesome/free-solid-svg-icons'
@@ -210,7 +211,7 @@ export function AwemePanel({
                   <th className="px-2 py-2 font-medium">作者</th>
                   <th className="px-2 py-2 text-right font-medium">点赞</th>
                   <th className="px-2 py-2 text-right font-medium">时长</th>
-                  <th className="px-3 py-2 text-right font-medium">操作</th>
+                  <th className="px-3 py-2 text-right font-medium">嗅探</th>
                 </tr>
               </thead>
               <tbody>
@@ -287,7 +288,7 @@ export function AwemePanel({
                               }`}
                             >
                               <FontAwesomeIcon
-                                icon={busy ? faSpinner : faDownload}
+                                icon={busy ? faSpinner : faSatelliteDish}
                                 className={`h-3 w-3 ${busy ? 'animate-spin' : ''}`}
                               />
                               {busy ? '下载中' : '下载'}

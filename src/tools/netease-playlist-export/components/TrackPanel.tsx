@@ -184,7 +184,7 @@ export function TrackPanel({
               <col style={{ width: '28%' }} />
               <col />
               <col style={{ width: '3.5rem' }} />
-              <col style={{ width: '6.5rem' }} />
+              <col style={{ width: '5.5rem' }} />
             </colgroup>
             <thead className="sticky top-0 z-10 bg-surface/95 backdrop-blur-sm">
               <tr className="border-b border-border-subtle text-[10px] uppercase tracking-wider text-subtle">
@@ -232,20 +232,33 @@ export function TrackPanel({
                     <td className="px-3 py-2.5 text-right tabular-nums text-subtle">
                       {formatDuration(track.durationMs)}
                     </td>
-                    <td className="px-2 py-2.5 text-center">
-                      <button
-                        type="button"
-                        onClick={() => setSniffTrack(track)}
-                        className={`inline-flex h-7 items-center justify-center gap-1 rounded-lg px-1.5 text-[11px] transition-colors duration-200 hover:bg-background ${
-                          downloaded
-                            ? 'text-success hover:text-success'
-                            : 'text-muted hover:text-foreground'
-                        }`}
-                        title={downloaded ? `已下载 · ${downloaded.path}` : '资源嗅探'}
-                        aria-label={`嗅探 ${track.name}`}
-                      >
-                        <FontAwesomeIcon icon={faSatelliteDish} className="h-3 w-3" />
-                      </button>
+                    <td className="px-2 py-2.5">
+                      <div className="flex items-center justify-center gap-0.5">
+                        <button
+                          type="button"
+                          onClick={() => setSniffTrack(track)}
+                          className={`inline-flex h-7 w-7 items-center justify-center rounded-lg text-[11px] transition-colors duration-200 hover:bg-background ${
+                            downloaded
+                              ? 'text-success hover:text-success'
+                              : 'text-muted hover:text-foreground'
+                          }`}
+                          title={downloaded ? `已下载 · ${downloaded.path}` : '资源嗅探'}
+                          aria-label={`嗅探 ${track.name}`}
+                        >
+                          <FontAwesomeIcon icon={faSatelliteDish} className="h-3 w-3" />
+                        </button>
+                        {downloaded && (
+                          <button
+                            type="button"
+                            onClick={() => void revealExport(downloaded.path)}
+                            className="inline-flex h-7 w-7 items-center justify-center rounded-lg text-muted transition-colors duration-200 hover:bg-background hover:text-foreground"
+                            title="打开文件位置"
+                            aria-label={`打开 ${track.name} 所在文件夹`}
+                          >
+                            <FontAwesomeIcon icon={faFolderOpen} className="h-3 w-3" />
+                          </button>
+                        )}
+                      </div>
                     </td>
                   </motion.tr>
                 )

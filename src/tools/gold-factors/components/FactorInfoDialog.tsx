@@ -19,7 +19,7 @@ interface FactorInfoDialogProps {
 
 function ReservesLoading() {
   return (
-    <div className="mt-3" role="status" aria-label="加载排名中">
+    <div role="status" aria-label="加载排名中">
       <div className="relative mb-3 flex items-center gap-3 overflow-hidden rounded-xl border border-border-subtle bg-background/40 px-3 py-2.5">
         <div className="relative flex h-9 w-9 shrink-0 items-center justify-center">
           <span className="gold-pulse-ring absolute inset-0 rounded-full border border-[#c9a227]/55" />
@@ -182,17 +182,17 @@ export function FactorInfoDialog({
             <div
               className={
                 showReserves
-                  ? 'mt-4 min-h-0 flex-1 space-y-4 overflow-y-auto pr-0.5'
+                  ? 'mt-4 flex min-h-0 flex-1 flex-col gap-4'
                   : 'mt-4 space-y-4'
               }
             >
-              <section>
+              <section className={showReserves ? 'shrink-0' : undefined}>
                 <h3 className="text-[11px] font-medium uppercase tracking-[0.12em] text-subtle">
                   名词解释
                 </h3>
                 <p className="mt-1.5 text-xs leading-relaxed text-muted">{content.definition}</p>
               </section>
-              <section>
+              <section className={showReserves ? 'shrink-0' : undefined}>
                 <h3 className="text-[11px] font-medium uppercase tracking-[0.12em] text-subtle">
                   对黄金的影响
                 </h3>
@@ -200,52 +200,58 @@ export function FactorInfoDialog({
               </section>
 
               {showReserves && (
-                <section>
-                  <h3 className="text-[11px] font-medium uppercase tracking-[0.12em] text-subtle">
+                <section className="flex min-h-0 flex-1 flex-col">
+                  <h3 className="shrink-0 text-[11px] font-medium uppercase tracking-[0.12em] text-subtle">
                     全球官方黄金储备 Top 10
                   </h3>
-                  <p className="mt-1 text-[10px] text-subtle">
+                  <p className="mt-1 shrink-0 text-[10px] text-subtle">
                     当前可获取的最新官方披露（非交易日内实时）。
                     {source ? ` 来源：${source}` : ''}
                   </p>
 
-                  {loading && <ReservesLoading />}
+                  {loading && (
+                    <div className="mt-3 min-h-0 flex-1 overflow-y-auto">
+                      <ReservesLoading />
+                    </div>
+                  )}
                   {error && !loading && (
                     <p className="mt-3 text-xs text-danger" role="alert">
                       {error}
                     </p>
                   )}
                   {rows && !loading && (
-                    <div className="mt-3 overflow-hidden rounded-xl border border-border-subtle">
-                      <table className="w-full text-left text-[11px]">
-                        <thead className="bg-background/60 text-subtle">
-                          <tr>
-                            <th className="px-3 py-2 font-medium">#</th>
-                            <th className="px-3 py-2 font-medium">国家 / 地区</th>
-                            <th className="px-3 py-2 text-right font-medium">储备量</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {rows.map((row) => (
-                            <tr
-                              key={row.countryEn}
-                              className="border-t border-border-subtle text-foreground"
-                            >
-                              <td className="px-3 py-2 tabular-nums text-subtle">{row.rank}</td>
-                              <td className="px-3 py-2">
-                                <span>{row.country}</span>
-                                {row.country !== row.countryEn && (
-                                  <span className="ml-1.5 text-subtle">{row.countryEn}</span>
-                                )}
-                              </td>
-                              <td className="px-3 py-2 text-right tabular-nums">
-                                {row.tonnes.toLocaleString('en-US')} t
-                                <div className="text-[10px] text-subtle">{row.asOf}</div>
-                              </td>
+                    <div className="mt-3 min-h-0 flex-1 overflow-hidden rounded-xl border border-border-subtle">
+                      <div className="h-full overflow-y-auto">
+                        <table className="w-full text-left text-[11px]">
+                          <thead className="sticky top-0 z-10 bg-surface text-subtle">
+                            <tr className="border-b border-border-subtle bg-background/60">
+                              <th className="px-3 py-2 font-medium">#</th>
+                              <th className="px-3 py-2 font-medium">国家 / 地区</th>
+                              <th className="px-3 py-2 text-right font-medium">储备量</th>
                             </tr>
-                          ))}
-                        </tbody>
-                      </table>
+                          </thead>
+                          <tbody>
+                            {rows.map((row) => (
+                              <tr
+                                key={row.countryEn}
+                                className="border-t border-border-subtle text-foreground"
+                              >
+                                <td className="px-3 py-2 tabular-nums text-subtle">{row.rank}</td>
+                                <td className="px-3 py-2">
+                                  <span>{row.country}</span>
+                                  {row.country !== row.countryEn && (
+                                    <span className="ml-1.5 text-subtle">{row.countryEn}</span>
+                                  )}
+                                </td>
+                                <td className="px-3 py-2 text-right tabular-nums">
+                                  {row.tonnes.toLocaleString('en-US')} t
+                                  <div className="text-[10px] text-subtle">{row.asOf}</div>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
                     </div>
                   )}
                 </section>
