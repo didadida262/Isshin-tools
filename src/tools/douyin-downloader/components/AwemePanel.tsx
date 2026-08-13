@@ -57,7 +57,7 @@ export function AwemePanel({
 }: AwemePanelProps) {
   const { toast } = useToast()
   const [selected, setSelected] = useState<DouyinAweme | null>(null)
-  const [downloading, setDownloading] = useState(false)
+  const [downloadingId, setDownloadingId] = useState<string | null>(null)
   const [lastPath, setLastPath] = useState<string | null>(null)
   const [previewSrc, setPreviewSrc] = useState<string | null>(null)
   const [previewLoading, setPreviewLoading] = useState(false)
@@ -122,8 +122,8 @@ export function AwemePanel({
   }, [selected])
 
   const handleDownload = async (item: DouyinAweme) => {
-    if (downloadedById.has(item.awemeId) || downloading) return
-    setDownloading(true)
+    if (downloadedById.has(item.awemeId) || downloadingId) return
+    setDownloadingId(item.awemeId)
     try {
       const result = await downloadAweme({
         cookie,
@@ -144,7 +144,7 @@ export function AwemePanel({
     } catch (e) {
       toast(e instanceof Error ? e.message : String(e), 'danger')
     } finally {
-      setDownloading(false)
+      setDownloadingId(null)
     }
   }
 
@@ -201,7 +201,7 @@ export function AwemePanel({
                 <col style={{ width: '5.5rem' }} />
                 <col style={{ width: '4.5rem' }} />
                 <col style={{ width: '4rem' }} />
-                <col style={{ width: '5rem' }} />
+                <col style={{ width: '9.5rem' }} />
               </colgroup>
               <thead className="sticky top-0 z-10 bg-surface/95 backdrop-blur-sm">
                 <tr className="border-b border-border-subtle text-[10px] uppercase tracking-wider text-subtle">
@@ -210,12 +210,13 @@ export function AwemePanel({
                   <th className="px-2 py-2 font-medium">作者</th>
                   <th className="px-2 py-2 text-right font-medium">点赞</th>
                   <th className="px-2 py-2 text-right font-medium">时长</th>
-                  <th className="px-3 py-2 text-right font-medium">状态</th>
+                  <th className="px-3 py-2 text-right font-medium">操作</th>
                 </tr>
               </thead>
               <tbody>
                 {items.map((item, index) => {
                   const downloaded = downloadedById.get(item.awemeId)
+                  const busy = downloadingId === item.awemeId
                   return (
                     <tr
                       key={item.awemeId}
@@ -249,15 +250,50 @@ export function AwemePanel({
                       <td className="px-2 py-2.5 text-right tabular-nums text-subtle">
                         {formatDuration(item.durationMs)}
                       </td>
-                      <td className="px-3 py-2.5 text-right">
-                        {downloaded ? (
-                          <span className="inline-flex items-center gap-1 text-[10px] font-medium text-success">
-                            <FontAwesomeIcon icon={faCircleCheck} className="h-2.5 w-2.5" />
-                            已下载
-                          </span>
-                        ) : (
-                          <span className="text-[10px] text-subtle">—</span>
-                        )}
+                      <td
+                        className="px-3 py-2.5 text-right"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <div className="flex items-center justify-end gap-1">
+                          {downloaded ? (
+                            <>
+                              <span
+                                className="inline-flex items-center gap-1 px-1.5 text-[11px] text-success"
+                                title={downloaded.path}
+                              >
+                                <FontAwesomeIcon icon={faCircleCheck} className="h-3 w-3" />
+                                已下载
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => void revealItemInDir(downloaded.path)}
+                                className="inline-flex h-7 w-7 items-center justify-center rounded-lg text-muted transition-colors hover:bg-background hover:text-foreground"
+                                title="打开文件位置"
+                                aria-label="打开文件位置"
+                              >
+                                <FontAwesomeIcon icon={faFolderOpen} className="h-3 w-3" />
+                              </button>
+                            </>
+                          ) : (
+                            <button
+                              type="button"
+                              disabled={downloadingId !== null}
+                              onClick={() => void handleDownload(item)}
+                              aria-busy={busy}
+                              className={`inline-flex h-7 items-center gap-1.5 rounded-lg px-2.5 text-[11px] transition-colors duration-200 ${
+                                busy
+                                  ? 'cursor-wait text-foreground'
+                                  : 'text-muted hover:bg-background hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40'
+                              }`}
+                            >
+                              <FontAwesomeIcon
+                                icon={busy ? faSpinner : faDownload}
+                                className={`h-3 w-3 ${busy ? 'animate-spin' : ''}`}
+                              />
+                              {busy ? '下载中' : '下载'}
+                            </button>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   )
@@ -378,12 +414,12 @@ export function AwemePanel({
                       )}
                       <button
                         type="button"
-                        disabled={!!selectedDownloaded || downloading}
+                        disabled={!!selectedDownloaded || downloadingId !== null}
                         onClick={() => void handleDownload(selected)}
                         className={`inline-flex h-8 min-w-[5.5rem] items-center justify-center gap-1.5 rounded-xl border px-3 text-[11px] transition-all ${
                           selectedDownloaded
                             ? 'cursor-default border-success/35 bg-success/15 text-success'
-                            : downloading
+                            : downloadingId === selected.awemeId
                               ? 'cursor-wait border-muted bg-surface-hover text-foreground'
                               : 'border-border bg-background text-foreground hover:border-muted hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-40'
                         }`}
@@ -392,13 +428,19 @@ export function AwemePanel({
                           icon={
                             selectedDownloaded
                               ? faCircleCheck
-                              : downloading
+                              : downloadingId === selected.awemeId
                                 ? faSpinner
                                 : faDownload
                           }
-                          className={`h-3 w-3 ${downloading ? 'animate-spin' : ''}`}
+                          className={`h-3 w-3 ${
+                            downloadingId === selected.awemeId ? 'animate-spin' : ''
+                          }`}
                         />
-                        {selectedDownloaded ? '已下载' : downloading ? '下载中' : '下载'}
+                        {selectedDownloaded
+                          ? '已下载'
+                          : downloadingId === selected.awemeId
+                            ? '下载中'
+                            : '下载'}
                       </button>
                     </div>
                   </div>

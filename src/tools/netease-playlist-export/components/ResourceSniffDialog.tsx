@@ -129,6 +129,8 @@ export function ResourceSniffDialog({
     }
   }
 
+  const openPath = lastPath ?? downloadedEntry?.path ?? null
+
   if (typeof document === 'undefined') return null
 
   return createPortal(
@@ -287,11 +289,11 @@ export function ResourceSniffDialog({
               )}
             </div>
 
-            {lastPath && (
+            {openPath && (
               <div className="shrink-0 border-t border-border-subtle px-5 py-3">
                 <button
                   type="button"
-                  onClick={() => void revealItemInDir(lastPath)}
+                  onClick={() => void revealItemInDir(openPath)}
                   className="inline-flex items-center gap-1.5 text-[11px] text-muted transition-colors hover:text-foreground"
                 >
                   <FontAwesomeIcon icon={faFolderOpen} className="h-3 w-3" />

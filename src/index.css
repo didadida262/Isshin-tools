@@ -60,3 +60,64 @@ body {
 ::-webkit-scrollbar-thumb:hover {
   background: var(--muted);
 }
+
+@keyframes gold-shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+@keyframes gold-pulse-ring {
+  0%,
+  100% {
+    transform: scale(0.92);
+    opacity: 0.45;
+  }
+  50% {
+    transform: scale(1.08);
+    opacity: 0.9;
+  }
+}
+
+@keyframes gold-orbit {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes gold-banner-sweep {
+  0% {
+    transform: translateX(-120%);
+  }
+  100% {
+    transform: translateX(220%);
+  }
+}
+
+.gold-shimmer {
+  background: linear-gradient(
+    105deg,
+    color-mix(in srgb, var(--surface-hover) 88%, transparent) 0%,
+    color-mix(in srgb, #c9a227 28%, var(--surface-hover)) 42%,
+    color-mix(in srgb, #f0d78c 42%, var(--surface-hover)) 50%,
+    color-mix(in srgb, #c9a227 28%, var(--surface-hover)) 58%,
+    color-mix(in srgb, var(--surface-hover) 88%, transparent) 100%
+  );
+  background-size: 200% 100%;
+  animation: gold-shimmer 1.6s ease-in-out infinite;
+}
+
+.gold-pulse-ring {
+  animation: gold-pulse-ring 1.8s ease-in-out infinite;
+}
+
+.gold-orbit {
+  animation: gold-orbit 2.4s linear infinite;
+}
+
+.gold-banner-sweep {
+  animation: gold-banner-sweep 1.8s ease-in-out infinite;
+}

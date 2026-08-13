@@ -17,6 +17,68 @@ interface FactorInfoDialogProps {
   onClose: () => void
 }
 
+function ReservesLoading() {
+  return (
+    <div className="mt-3" role="status" aria-label="加载排名中">
+      <div className="relative mb-3 flex items-center gap-3 overflow-hidden rounded-xl border border-border-subtle bg-background/40 px-3 py-2.5">
+        <div className="relative flex h-9 w-9 shrink-0 items-center justify-center">
+          <span className="gold-pulse-ring absolute inset-0 rounded-full border border-[#c9a227]/55" />
+          <span className="gold-orbit absolute inset-0.5 rounded-full border border-transparent border-t-[#f0d78c]/80 border-r-[#c9a227]/35" />
+          <span className="h-2.5 w-2.5 rounded-full bg-linear-to-br from-[#f0d78c] to-[#a8841a] shadow-[0_0_12px_rgba(240,215,140,0.55)]" />
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="text-xs font-medium tracking-wide text-foreground">同步官方储备数据</p>
+          <p className="mt-0.5 text-[10px] text-subtle">正在拉取全球央行黄金持仓排名…</p>
+        </div>
+        <div className="pointer-events-none absolute inset-0 overflow-hidden rounded-xl">
+          <div className="gold-banner-sweep absolute inset-y-0 w-1/2 bg-linear-to-r from-transparent via-[#f0d78c]/10 to-transparent" />
+        </div>
+      </div>
+
+      <div className="overflow-hidden rounded-xl border border-border-subtle">
+        <div className="flex items-center gap-3 bg-background/60 px-3 py-2">
+          <div className="gold-shimmer h-2.5 w-4 rounded" />
+          <div className="gold-shimmer h-2.5 w-20 rounded" />
+          <div className="ml-auto gold-shimmer h-2.5 w-12 rounded" />
+        </div>
+        <ul className="divide-y divide-border-subtle">
+          {Array.from({ length: 10 }).map((_, i) => (
+            <motion.li
+              key={i}
+              initial={{ opacity: 0, x: -6 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ delay: i * 0.04, duration: 0.28, ease: 'easeOut' }}
+              className="flex items-center gap-3 px-3 py-2.5"
+            >
+              <div
+                className="gold-shimmer h-2.5 w-4 shrink-0 rounded"
+                style={{ animationDelay: `${i * 80}ms` }}
+              />
+              <div className="min-w-0 flex-1 space-y-1.5">
+                <div
+                  className="gold-shimmer h-2.5 rounded"
+                  style={{
+                    width: `${52 + ((i * 17) % 36)}%`,
+                    animationDelay: `${i * 80 + 40}ms`,
+                  }}
+                />
+                <div
+                  className="gold-shimmer h-2 w-16 rounded opacity-70"
+                  style={{ animationDelay: `${i * 80 + 80}ms` }}
+                />
+              </div>
+              <div
+                className="gold-shimmer h-2.5 w-14 shrink-0 rounded"
+                style={{ animationDelay: `${i * 80 + 60}ms` }}
+              />
+            </motion.li>
+          ))}
+        </ul>
+      </div>
+    </div>
+  )
+}
+
 export function FactorInfoDialog({
   open,
   title,
@@ -94,9 +156,13 @@ export function FactorInfoDialog({
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 8, scale: 0.98 }}
             transition={{ duration: 0.18, ease: 'easeOut' }}
-            className="relative z-10 max-h-[min(88vh,720px)] w-full max-w-lg overflow-y-auto rounded-2xl border border-border bg-surface p-5 shadow-xl"
+            className={
+              showReserves
+                ? 'relative z-10 flex h-[min(88vh,680px)] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-border bg-surface p-5 shadow-xl'
+                : 'relative z-10 max-h-[min(88vh,720px)] w-full max-w-lg overflow-y-auto rounded-2xl border border-border bg-surface p-5 shadow-xl'
+            }
           >
-            <div className="flex items-start justify-between gap-3">
+            <div className="flex shrink-0 items-start justify-between gap-3">
               <h2
                 id="factor-info-title"
                 className="font-display text-base font-semibold tracking-tight text-foreground"
@@ -113,7 +179,13 @@ export function FactorInfoDialog({
               </button>
             </div>
 
-            <div className="mt-4 space-y-4">
+            <div
+              className={
+                showReserves
+                  ? 'mt-4 min-h-0 flex-1 space-y-4 overflow-y-auto pr-0.5'
+                  : 'mt-4 space-y-4'
+              }
+            >
               <section>
                 <h3 className="text-[11px] font-medium uppercase tracking-[0.12em] text-subtle">
                   名词解释
@@ -137,11 +209,7 @@ export function FactorInfoDialog({
                     {source ? ` 来源：${source}` : ''}
                   </p>
 
-                  {loading && (
-                    <p className="mt-3 text-xs text-muted" role="status">
-                      加载排名中…
-                    </p>
-                  )}
+                  {loading && <ReservesLoading />}
                   {error && !loading && (
                     <p className="mt-3 text-xs text-danger" role="alert">
                       {error}
