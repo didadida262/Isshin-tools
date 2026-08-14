@@ -4,14 +4,19 @@ import { LoginPanel } from './components/LoginPanel'
 import { AwemePanel } from './components/AwemePanel'
 import { useAwemeList } from './hooks/useAwemeList'
 import { useDouyinAuth } from './hooks/useDouyinAuth'
-import { useDownloadedAweme } from './hooks/useDownloadedAweme'
+import {
+  useDownloadedAweme,
+  useDownloadedMapForKind,
+} from './hooks/useDownloadedAweme'
 import type { DouyinListKind } from './types'
 
 export function DouyinDownloaderTool() {
   const auth = useDouyinAuth()
   const [kind, setKind] = useState<DouyinListKind>('favorite')
+  const [batchActive, setBatchActive] = useState(false)
   const list = useAwemeList(auth.cookie, auth.profile?.secUid ?? null, kind)
   const downloaded = useDownloadedAweme()
+  const downloadedById = useDownloadedMapForKind(downloaded.byKey, kind)
 
   return (
     <div className="flex h-full flex-col gap-4 overflow-hidden p-5 md:p-6">
@@ -20,7 +25,7 @@ export function DouyinDownloaderTool() {
           抖音下载器
         </h1>
         <p className="mt-1 text-xs text-muted">
-          登录后查看作品 / 喜欢 · 支持预览与下载到 downloads/抖音
+          登录后查看作品 / 喜欢 · 下载目录与已下载状态按分类分开 · 一键下载最多自动加载 3 页
         </p>
       </header>
 
@@ -39,10 +44,18 @@ export function DouyinDownloaderTool() {
       {auth.status === 'authenticated' && auth.cookie ? (
         <>
           <div className="relative flex shrink-0 gap-1 self-start rounded-xl border border-border bg-background p-0.5 text-xs">
-            <KindTab active={kind === 'favorite'} onClick={() => setKind('favorite')}>
+            <KindTab
+              active={kind === 'favorite'}
+              disabled={batchActive}
+              onClick={() => setKind('favorite')}
+            >
               喜欢
             </KindTab>
-            <KindTab active={kind === 'post'} onClick={() => setKind('post')}>
+            <KindTab
+              active={kind === 'post'}
+              disabled={batchActive}
+              onClick={() => setKind('post')}
+            >
               作品
             </KindTab>
           </div>
@@ -63,10 +76,11 @@ export function DouyinDownloaderTool() {
                   loading={list.loading}
                   error={list.error}
                   hasMore={list.hasMore}
-                  downloadedById={downloaded.byId}
+                  downloadedById={downloadedById}
                   onRetry={() => void list.reload()}
-                  onLoadMore={() => void list.loadMore()}
+                  onLoadMore={() => list.loadMore()}
                   onDownloaded={downloaded.markDownloaded}
+                  onBatchActiveChange={setBatchActive}
                 />
               </motion.div>
             </AnimatePresence>
@@ -85,18 +99,21 @@ export function DouyinDownloaderTool() {
 
 function KindTab({
   active,
+  disabled,
   onClick,
   children,
 }: {
   active: boolean
+  disabled?: boolean
   onClick: () => void
   children: ReactNode
 }) {
   return (
     <button
       type="button"
+      disabled={disabled}
       onClick={onClick}
-      className={`relative rounded-[10px] px-3 py-1.5 transition-colors duration-200 ${
+      className={`relative rounded-[10px] px-3 py-1.5 transition-colors duration-200 disabled:cursor-not-allowed disabled:opacity-40 ${
         active ? 'text-foreground' : 'text-subtle hover:text-muted'
       }`}
     >

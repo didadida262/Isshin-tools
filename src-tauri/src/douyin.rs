@@ -363,6 +363,42 @@ fn index_path(root: &Path) -> PathBuf {
     root.join("index.json")
 }
 
+fn index_entry_key(kind_folder: &str, aweme_id: &str) -> String {
+    format!("{kind_folder}:{aweme_id}")
+}
+
+fn normalize_kind_folder(kind: &str) -> &'static str {
+    match kind.trim().to_ascii_lowercase().as_str() {
+        "favorite" | "like" | "likes" => "likes",
+        _ => "works",
+    }
+}
+
+/// Migrate legacy index keys (`aweme_id` only) to `likes|works:aweme_id`.
+fn migrate_index_keys(index: &mut DownloadIndex) -> bool {
+    let mut changed = false;
+    let mut next: HashMap<String, DouyinDownloadedEntry> = HashMap::new();
+    for (key, mut entry) in index.entries.drain() {
+        let folder = normalize_kind_folder(&entry.kind);
+        if entry.kind != folder {
+            entry.kind = folder.to_string();
+            changed = true;
+        }
+        let proper = index_entry_key(folder, &entry.aweme_id);
+        if key != proper {
+            changed = true;
+        }
+        if let Some(prev) = next.get(&proper) {
+            if prev.downloaded_at >= entry.downloaded_at {
+                continue;
+            }
+        }
+        next.insert(proper, entry);
+    }
+    index.entries = next;
+    changed
+}
+
 async fn load_index(root: &Path) -> Result<DownloadIndex, String> {
     let path = index_path(root);
     if !path.is_file() {
@@ -374,7 +410,13 @@ async fn load_index(root: &Path) -> Result<DownloadIndex, String> {
     let text = fs::read_to_string(&path)
         .await
         .map_err(|e| format!("读取下载索引失败: {e}"))?;
-    serde_json::from_str(&text).map_err(|e| format!("解析下载索引失败: {e}"))
+    let mut index: DownloadIndex =
+        serde_json::from_str(&text).map_err(|e| format!("解析下载索引失败: {e}"))?;
+    if migrate_index_keys(&mut index) {
+        index.version = 1;
+        save_index(root, &index).await?;
+    }
+    Ok(index)
 }
 
 async fn save_index(root: &Path, index: &DownloadIndex) -> Result<(), String> {
@@ -738,10 +780,7 @@ pub async fn douyin_download(
         return Err("aweme_id / play_url 不能为空".into());
     }
     let kind = kind.unwrap_or_else(|| "works".into());
-    let kind_folder = match kind.as_str() {
-        "favorite" | "like" | "likes" => "likes",
-        _ => "works",
-    };
+    let kind_folder = normalize_kind_folder(&kind);
 
     let root = resolve_download_root(&app)?;
     let out_dir = root.join(kind_folder);
@@ -789,7 +828,7 @@ pub async fn douyin_download(
         let mut index = load_index(&root).await?;
         index.version = 1;
         index.entries.insert(
-            aweme_id.clone(),
+            index_entry_key(kind_folder, &aweme_id),
             DouyinDownloadedEntry {
                 aweme_id: aweme_id.clone(),
                 kind: kind_folder.into(),

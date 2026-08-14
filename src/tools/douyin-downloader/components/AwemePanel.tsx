@@ -7,14 +7,20 @@ import {
   faCircleCheck,
   faDownload,
   faFolderOpen,
+  faLayerGroup,
   faSatelliteDish,
   faSpinner,
+  faStop,
+  faTriangleExclamation,
   faXmark,
 } from '@fortawesome/free-solid-svg-icons'
 import { revealItemInDir } from '@tauri-apps/plugin-opener'
 import { ErrorState } from '@/components/ErrorState'
 import { useToast } from '@/components/Toast'
 import { cachePreview, downloadAweme } from '../api/douyinApi'
+import { useBatchDownload } from '../hooks/useBatchDownload'
+import { kindFolder } from '../hooks/useDownloadedAweme'
+import type { LoadMoreOutcome } from '../hooks/useAwemeList'
 import type { DouyinAweme, DouyinDownloadedEntry, DouyinListKind } from '../types'
 
 interface AwemePanelProps {
@@ -26,8 +32,9 @@ interface AwemePanelProps {
   hasMore: boolean
   downloadedById: Map<string, DouyinDownloadedEntry>
   onRetry: () => void
-  onLoadMore: () => void
+  onLoadMore: () => Promise<LoadMoreOutcome>
   onDownloaded: (entry: DouyinDownloadedEntry) => void
+  onBatchActiveChange?: (active: boolean) => void
 }
 
 function formatDuration(ms: number) {
@@ -55,6 +62,7 @@ export function AwemePanel({
   onRetry,
   onLoadMore,
   onDownloaded,
+  onBatchActiveChange,
 }: AwemePanelProps) {
   const { toast } = useToast()
   const [selected, setSelected] = useState<DouyinAweme | null>(null)
@@ -63,6 +71,20 @@ export function AwemePanel({
   const [previewSrc, setPreviewSrc] = useState<string | null>(null)
   const [previewLoading, setPreviewLoading] = useState(false)
   const [previewError, setPreviewError] = useState<string | null>(null)
+
+  const batch = useBatchDownload({
+    cookie,
+    kind,
+    items,
+    hasMore,
+    downloadedById,
+    loadMore: onLoadMore,
+    onDownloaded,
+  })
+
+  useEffect(() => {
+    onBatchActiveChange?.(batch.isActive)
+  }, [batch.isActive, onBatchActiveChange])
 
   useEffect(() => {
     if (!selected) {
@@ -123,7 +145,7 @@ export function AwemePanel({
   }, [selected])
 
   const handleDownload = async (item: DouyinAweme) => {
-    if (downloadedById.has(item.awemeId) || downloadingId) return
+    if (downloadedById.has(item.awemeId) || downloadingId || batch.isActive) return
     setDownloadingId(item.awemeId)
     try {
       const result = await downloadAweme({
@@ -136,12 +158,12 @@ export function AwemePanel({
       setLastPath(result.path)
       onDownloaded({
         awemeId: item.awemeId,
-        kind: kind === 'favorite' ? 'likes' : 'works',
+        kind: kindFolder(kind),
         path: result.path,
         title: item.desc || item.awemeId,
         downloadedAt: Math.floor(Date.now() / 1000),
       })
-      toast(`已下载到 downloads/抖音/${kind === 'favorite' ? 'likes' : 'works'}`, 'success')
+      toast(`已下载到 downloads/抖音/${kindFolder(kind)}`, 'success')
     } catch (e) {
       toast(e instanceof Error ? e.message : String(e), 'danger')
     } finally {
@@ -152,34 +174,152 @@ export function AwemePanel({
   const selectedDownloaded = selected ? downloadedById.get(selected.awemeId) : undefined
   const scrollRef = useRef<HTMLDivElement>(null)
   const sentinelRef = useRef<HTMLDivElement>(null)
+  const rowRefs = useRef(new Map<string, HTMLTableRowElement>())
   const onLoadMoreRef = useRef(onLoadMore)
   onLoadMoreRef.current = onLoadMore
 
   useEffect(() => {
+    if (!batch.activeId) return
+    const row = rowRefs.current.get(batch.activeId)
+    const root = scrollRef.current
+    if (!row || !root) return
+    const rowTop = row.offsetTop
+    const rowBottom = rowTop + row.offsetHeight
+    const viewTop = root.scrollTop
+    const viewBottom = viewTop + root.clientHeight
+    const margin = 48
+    if (rowTop < viewTop + margin) {
+      root.scrollTo({ top: Math.max(0, rowTop - margin), behavior: 'smooth' })
+    } else if (rowBottom > viewBottom - margin) {
+      root.scrollTo({
+        top: rowBottom - root.clientHeight + margin,
+        behavior: 'smooth',
+      })
+    }
+  }, [batch.activeId, batch.phase, items.length])
+
+  useEffect(() => {
+    if (batch.isActive && selected) setSelected(null)
+  }, [batch.isActive, selected])
+
+  useEffect(() => {
     const root = scrollRef.current
     const sentinel = sentinelRef.current
-    if (!root || !sentinel || !hasMore || loading) return
+    if (!root || !sentinel || !hasMore || loading || batch.isActive) return
 
     const observer = new IntersectionObserver(
       (entries) => {
-        if (entries.some((e) => e.isIntersecting)) onLoadMoreRef.current()
+        if (entries.some((e) => e.isIntersecting)) void onLoadMoreRef.current()
       },
       { root, rootMargin: '120px 0px', threshold: 0 },
     )
     observer.observe(sentinel)
     return () => observer.disconnect()
-  }, [hasMore, loading, items.length])
+  }, [hasMore, loading, items.length, batch.isActive])
+
+  const pendingCount = items.filter((item) => !downloadedById.has(item.awemeId)).length
+  const busySingle = downloadingId !== null
+  const controlsLocked = batch.isActive || busySingle
+
+  const handleBatchClick = () => {
+    if (batch.isActive) {
+      batch.stop()
+      return
+    }
+    if (pendingCount === 0 && !hasMore) {
+      toast('当前没有可下载的视频', 'neutral')
+      return
+    }
+    batch.clearStopBanner()
+    void batch.start()
+  }
 
   return (
     <>
       <section className="flex h-full min-h-0 flex-col overflow-hidden rounded-2xl border border-border-subtle bg-surface/60">
         <header className="shrink-0 border-b border-border-subtle px-4 py-3">
-          <p className="text-sm font-medium text-foreground">
-            {kind === 'favorite' ? '喜欢' : '作品'}
-          </p>
-          <p className="mt-0.5 text-[11px] text-subtle">
-            {items.length} 条已加载 · 点击条目预览
-          </p>
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-sm font-medium text-foreground">
+                {kind === 'favorite' ? '喜欢' : '作品'}
+              </p>
+              <p className="mt-0.5 text-[11px] text-subtle">
+                {items.length} 条已加载
+                {pendingCount > 0 ? ` · ${pendingCount} 条未下载` : ''}
+                {' · '}
+                点击条目预览
+              </p>
+            </div>
+            <button
+              type="button"
+              disabled={busySingle || (pendingCount === 0 && !hasMore && !batch.isActive)}
+              onClick={handleBatchClick}
+              className={`inline-flex h-8 items-center gap-1.5 rounded-xl border px-3 text-[11px] transition-colors ${
+                batch.isActive
+                  ? 'border-danger/35 bg-danger/10 text-danger hover:bg-danger/15'
+                  : 'border-border bg-background text-foreground hover:border-muted hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-40'
+              }`}
+            >
+              <FontAwesomeIcon
+                icon={
+                  batch.isActive
+                    ? batch.phase === 'stopping'
+                      ? faSpinner
+                      : faStop
+                    : faLayerGroup
+                }
+                className={`h-3 w-3 ${batch.phase === 'stopping' ? 'animate-spin' : ''}`}
+              />
+              {batch.isActive
+                ? batch.phase === 'stopping'
+                  ? '正在停止'
+                  : '停止批量'
+                : kind === 'favorite'
+                  ? '一键下载喜欢'
+                  : '一键下载作品'}
+            </button>
+          </div>
+
+          {(batch.isActive || batch.statusText) && (
+            <p className="mt-2 text-[11px] text-muted">
+              {batch.statusText || '批量进行中…'}
+              <span className="text-subtle">
+                {' '}
+                · 成功 {batch.successCount}
+                {' · '}
+                加载更多 {batch.loadMoreUsed}/{batch.maxLoadMore}
+              </span>
+            </p>
+          )}
+
+          {batch.stopMessage && !batch.isActive && (
+            <div
+              className={`mt-2 flex items-start gap-2 rounded-xl border px-3 py-2 text-[11px] leading-relaxed ${
+                batch.stopReason === 'risk' || batch.stopReason === 'error'
+                  ? 'border-danger/30 bg-danger/10 text-danger'
+                  : 'border-border-subtle bg-background/80 text-muted'
+              }`}
+              role="status"
+            >
+              {(batch.stopReason === 'risk' || batch.stopReason === 'error') && (
+                <FontAwesomeIcon
+                  icon={faTriangleExclamation}
+                  className="mt-0.5 h-3 w-3 shrink-0"
+                />
+              )}
+              <div className="min-w-0 flex-1">
+                <p>{batch.stopMessage}</p>
+              </div>
+              <button
+                type="button"
+                onClick={batch.clearStopBanner}
+                className="shrink-0 text-subtle transition-colors hover:text-foreground"
+                aria-label="关闭提示"
+              >
+                <FontAwesomeIcon icon={faXmark} className="h-3 w-3" />
+              </button>
+            </div>
+          )}
         </header>
 
         <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto">
@@ -217,12 +357,21 @@ export function AwemePanel({
               <tbody>
                 {items.map((item, index) => {
                   const downloaded = downloadedById.get(item.awemeId)
-                  const busy = downloadingId === item.awemeId
+                  const busy = downloadingId === item.awemeId || batch.activeId === item.awemeId
+                  const isBatchTarget = batch.activeId === item.awemeId
                   return (
                     <tr
                       key={item.awemeId}
-                      onClick={() => setSelected(item)}
-                      className="cursor-pointer border-b border-border-subtle/60 transition-colors duration-200 hover:bg-surface-hover/50"
+                      ref={(el) => {
+                        if (el) rowRefs.current.set(item.awemeId, el)
+                        else rowRefs.current.delete(item.awemeId)
+                      }}
+                      onClick={() => {
+                        if (!batch.isActive) setSelected(item)
+                      }}
+                      className={`border-b border-border-subtle/60 transition-colors duration-200 ${
+                        batch.isActive ? 'cursor-default' : 'cursor-pointer hover:bg-surface-hover/50'
+                      } ${isBatchTarget ? 'bg-surface-hover/70' : ''}`}
                     >
                       <td className="px-3 py-2.5">
                         {item.coverUrl ? (
@@ -278,7 +427,7 @@ export function AwemePanel({
                           ) : (
                             <button
                               type="button"
-                              disabled={downloadingId !== null}
+                              disabled={controlsLocked}
                               onClick={() => void handleDownload(item)}
                               aria-busy={busy}
                               className={`inline-flex h-7 items-center gap-1.5 rounded-lg px-2.5 text-[11px] transition-colors duration-200 ${
@@ -307,10 +456,14 @@ export function AwemePanel({
             <div ref={sentinelRef} className="flex h-10 items-center justify-center">
               {hasMore ? (
                 <p className="flex items-center gap-1.5 text-[11px] text-subtle">
-                  {loading && (
+                  {(loading || batch.phase === 'loadingMore') && (
                     <FontAwesomeIcon icon={faSpinner} className="h-2.5 w-2.5 animate-spin" />
                   )}
-                  {loading ? '加载中…' : ''}
+                  {batch.phase === 'loadingMore'
+                    ? `批量加载更多 ${batch.loadMoreUsed + 1}/${batch.maxLoadMore}…`
+                    : loading
+                      ? '加载中…'
+                      : ''}
                 </p>
               ) : (
                 <p className="text-[11px] text-subtle">已加载全部</p>
@@ -415,7 +568,7 @@ export function AwemePanel({
                       )}
                       <button
                         type="button"
-                        disabled={!!selectedDownloaded || downloadingId !== null}
+                        disabled={!!selectedDownloaded || controlsLocked}
                         onClick={() => void handleDownload(selected)}
                         className={`inline-flex h-8 min-w-[5.5rem] items-center justify-center gap-1.5 rounded-xl border px-3 text-[11px] transition-all ${
                           selectedDownloaded
