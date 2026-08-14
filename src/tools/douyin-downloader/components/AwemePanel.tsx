@@ -337,6 +337,7 @@ export function AwemePanel({
           {items.length > 0 && (
             <table className="w-full table-fixed text-left text-xs">
               <colgroup>
+                <col style={{ width: '2.75rem' }} />
                 <col style={{ width: '3.25rem' }} />
                 <col />
                 <col style={{ width: '5.5rem' }} />
@@ -346,6 +347,7 @@ export function AwemePanel({
               </colgroup>
               <thead className="sticky top-0 z-10 bg-surface/95 backdrop-blur-sm">
                 <tr className="border-b border-border-subtle text-[10px] uppercase tracking-wider text-subtle">
+                  <th className="px-2 py-2 text-right font-medium">#</th>
                   <th className="px-3 py-2 font-medium">封面</th>
                   <th className="px-2 py-2 font-medium">内容</th>
                   <th className="px-2 py-2 font-medium">作者</th>
@@ -373,6 +375,9 @@ export function AwemePanel({
                         batch.isActive ? 'cursor-default' : 'cursor-pointer hover:bg-surface-hover/50'
                       } ${isBatchTarget ? 'bg-surface-hover/70' : ''}`}
                     >
+                      <td className="px-2 py-2.5 text-right tabular-nums text-subtle">
+                        {index + 1}
+                      </td>
                       <td className="px-3 py-2.5">
                         {item.coverUrl ? (
                           <img

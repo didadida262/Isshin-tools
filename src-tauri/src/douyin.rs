@@ -101,6 +101,21 @@ fn http_client() -> &'static reqwest::Client {
     })
 }
 
+/// 视频拉取不设总超时，避免长视频被 45s 掐断；仅保留连接超时。
+fn download_client() -> &'static reqwest::Client {
+    static CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
+    CLIENT.get_or_init(|| {
+        reqwest::Client::builder()
+            .user_agent(USER_AGENT_VALUE)
+            .http1_only()
+            .connect_timeout(Duration::from_secs(15))
+            .pool_max_idle_per_host(0)
+            .cookie_store(false)
+            .build()
+            .expect("douyin download client")
+    })
+}
+
 fn index_lock() -> &'static Mutex<()> {
     static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
     LOCK.get_or_init(|| Mutex::new(()))
@@ -745,7 +760,7 @@ pub async fn douyin_cache_preview(
         return Ok(output.to_string_lossy().to_string());
     }
 
-    let resp = http_client()
+    let resp = download_client()
         .get(&play_url)
         .headers(header_map(&cookie)?)
         .send()
@@ -796,7 +811,7 @@ pub async fn douyin_download(
     );
     let output = out_dir.join(format!("{aweme_id}_{stem}.mp4"));
 
-    let resp = http_client()
+    let resp = download_client()
         .get(&play_url)
         .headers(header_map(&cookie)?)
         .header(REFERER, HeaderValue::from_static("https://www.douyin.com/"))
