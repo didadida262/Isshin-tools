@@ -195,9 +195,8 @@ export function TrackPanel({
     let localSuccess = 0
 
     try {
-      for (let i = 0; i < tracks.length; i += 1) {
+      for (const track of tracks) {
         if (cancelBatchRef.current) break
-        const track = tracks[i]
         if (bySongIdRef.current.has(track.songId)) continue
 
         setBatchSongId(track.songId)

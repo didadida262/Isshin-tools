@@ -151,6 +151,11 @@ export function ResourceSniffDialog({
 
     autoStartedRef.current = true
     const first = items[0]
+    if (!first) {
+      setAutoStatus('未找到相关稿件，跳过')
+      onAutoFinishedRef.current?.({ status: 'empty' })
+      return
+    }
     const currentTrack = track
     setAutoTargetBvid(first.bvid)
     const waitSec = randomIntInclusive(1, 3)
