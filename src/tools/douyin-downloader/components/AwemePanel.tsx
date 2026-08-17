@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { readFile } from '@tauri-apps/plugin-fs'
 import { AnimatePresence, motion } from 'framer-motion'
@@ -71,6 +71,23 @@ export function AwemePanel({
   const [previewSrc, setPreviewSrc] = useState<string | null>(null)
   const [previewLoading, setPreviewLoading] = useState(false)
   const [previewError, setPreviewError] = useState<string | null>(null)
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const sentinelRef = useRef<HTMLDivElement>(null)
+  const rowRefs = useRef(new Map<string, HTMLTableRowElement>())
+  const onLoadMoreRef = useRef(onLoadMore)
+  onLoadMoreRef.current = onLoadMore
+
+  const batchLoadMore = useCallback(async () => {
+    const root = scrollRef.current
+    if (root) {
+      const target = Math.max(0, root.scrollHeight - root.clientHeight)
+      root.scrollTo({ top: target, behavior: 'smooth' })
+      await new Promise<void>((resolve) => {
+        window.setTimeout(resolve, 420)
+      })
+    }
+    return onLoadMoreRef.current()
+  }, [])
 
   const batch = useBatchDownload({
     cookie,
@@ -78,7 +95,7 @@ export function AwemePanel({
     items,
     hasMore,
     downloadedById,
-    loadMore: onLoadMore,
+    loadMore: batchLoadMore,
     onDownloaded,
   })
 
@@ -172,11 +189,6 @@ export function AwemePanel({
   }
 
   const selectedDownloaded = selected ? downloadedById.get(selected.awemeId) : undefined
-  const scrollRef = useRef<HTMLDivElement>(null)
-  const sentinelRef = useRef<HTMLDivElement>(null)
-  const rowRefs = useRef(new Map<string, HTMLTableRowElement>())
-  const onLoadMoreRef = useRef(onLoadMore)
-  onLoadMoreRef.current = onLoadMore
 
   useEffect(() => {
     if (!batch.activeId) return
@@ -197,6 +209,26 @@ export function AwemePanel({
       })
     }
   }, [batch.activeId, batch.phase, items.length])
+
+  // 新数据追加后继续贴底，保持「下拉加载」观感
+  useEffect(() => {
+    if (batch.phase !== 'loadingMore') return
+    const root = scrollRef.current
+    if (!root) return
+
+    const scrollToBottom = () => {
+      const target = Math.max(0, root.scrollHeight - root.clientHeight)
+      root.scrollTo({ top: target, behavior: 'smooth' })
+    }
+
+    scrollToBottom()
+    const t1 = window.setTimeout(scrollToBottom, 120)
+    const t2 = window.setTimeout(scrollToBottom, 320)
+    return () => {
+      window.clearTimeout(t1)
+      window.clearTimeout(t2)
+    }
+  }, [batch.phase, batch.loadMoreUsed, items.length])
 
   useEffect(() => {
     if (batch.isActive && selected) setSelected(null)
@@ -287,7 +319,7 @@ export function AwemePanel({
                 {' '}
                 · 成功 {batch.successCount}
                 {' · '}
-                加载更多 {batch.loadMoreUsed}/{batch.maxLoadMore}
+                加载更多 {batch.loadMoreUsed} 次
               </span>
             </p>
           )}
@@ -465,7 +497,7 @@ export function AwemePanel({
                     <FontAwesomeIcon icon={faSpinner} className="h-2.5 w-2.5 animate-spin" />
                   )}
                   {batch.phase === 'loadingMore'
-                    ? `批量加载更多 ${batch.loadMoreUsed + 1}/${batch.maxLoadMore}…`
+                    ? `批量加载更多（第 ${batch.loadMoreUsed + 1} 次）…`
                     : loading
                       ? '加载中…'
                       : ''}

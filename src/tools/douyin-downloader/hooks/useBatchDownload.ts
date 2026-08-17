@@ -17,9 +17,8 @@ export type BatchPhase =
   | 'stopped'
   | 'done'
 
-export type BatchStopReason = 'user' | 'risk' | 'error' | 'limit' | 'complete'
+export type BatchStopReason = 'user' | 'risk' | 'error' | 'complete'
 
-const MAX_LOAD_MORE = 3
 const DELAY_MIN_MS = 1000
 const DELAY_MAX_MS = 3000
 
@@ -221,20 +220,15 @@ export function useBatchDownload({
           return
         }
 
-        if (localLoadMore >= MAX_LOAD_MORE) {
-          finish(
-            'done',
-            'limit',
-            `已达本轮最多 ${MAX_LOAD_MORE} 次加载更多（成功 ${localSuccess} 个）。可再次点击继续下一轮。`,
-          )
-          return
-        }
+        const delay = randomDelayMs()
+        setPhase('waiting')
+        setActiveId(null)
+        setStatusText(`加载更多前等待 ${(delay / 1000).toFixed(1)}s…`)
+        await sleep(delay, () => cancelRef.current)
+        if (cancelRef.current) break
 
         setPhase('loadingMore')
-        setActiveId(null)
-        setStatusText(
-          `加载更多（${localLoadMore + 1}/${MAX_LOAD_MORE}）…`,
-        )
+        setStatusText(`加载更多（第 ${localLoadMore + 1} 次）…`)
 
         const outcome = await loadMore()
         if (cancelRef.current) break
@@ -294,7 +288,7 @@ export function useBatchDownload({
         finish(
           'paused',
           'user',
-          `已手动停止（本轮成功 ${localSuccess} 个，加载更多 ${localLoadMore}/${MAX_LOAD_MORE}）`,
+          `已手动停止（本轮成功 ${localSuccess} 个，加载更多 ${localLoadMore} 次）`,
         )
       }
     } catch (e) {
@@ -308,7 +302,6 @@ export function useBatchDownload({
     activeId,
     isActive,
     loadMoreUsed,
-    maxLoadMore: MAX_LOAD_MORE,
     successCount,
     statusText,
     stopMessage,
