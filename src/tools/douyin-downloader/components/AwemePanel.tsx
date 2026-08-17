@@ -305,7 +305,9 @@ export function AwemePanel({
               {batch.isActive
                 ? batch.phase === 'stopping'
                   ? '正在停止'
-                  : '停止批量'
+                  : batch.phase === 'retrying'
+                    ? '取消自动重试'
+                    : '停止批量'
                 : kind === 'favorite'
                   ? '一键下载喜欢'
                   : '一键下载作品'}
@@ -324,7 +326,7 @@ export function AwemePanel({
             </p>
           )}
 
-          {batch.stopMessage && !batch.isActive && (
+          {batch.stopMessage && (!batch.isActive || batch.phase === 'retrying') && (
             <div
               className={`mt-2 flex items-start gap-2 rounded-xl border px-3 py-2 text-[11px] leading-relaxed ${
                 batch.stopReason === 'risk' || batch.stopReason === 'error'

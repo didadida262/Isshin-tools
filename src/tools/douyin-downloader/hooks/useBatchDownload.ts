@@ -13,6 +13,7 @@ export type BatchPhase =
   | 'waiting'
   | 'loadingMore'
   | 'stopping'
+  | 'retrying'
   | 'paused'
   | 'stopped'
   | 'done'
@@ -20,7 +21,7 @@ export type BatchPhase =
 export type BatchStopReason = 'user' | 'risk' | 'error' | 'complete'
 
 const DELAY_MIN_MS = 1000
-const DELAY_MAX_MS = 3000
+const DELAY_MAX_MS = 10_000
 
 function randomDelayMs() {
   return DELAY_MIN_MS + Math.floor(Math.random() * (DELAY_MAX_MS - DELAY_MIN_MS + 1))
@@ -88,6 +89,8 @@ export function useBatchDownload({
   const itemsRef = useRef(items)
   const hasMoreRef = useRef(hasMore)
   const downloadedRef = useRef(downloadedById)
+  const autoRetryTimerRef = useRef<number | null>(null)
+  const startRef = useRef<() => Promise<void>>(async () => {})
 
   itemsRef.current = items
   hasMoreRef.current = hasMore
@@ -97,11 +100,41 @@ export function useBatchDownload({
     phase === 'downloading' ||
     phase === 'waiting' ||
     phase === 'loadingMore' ||
-    phase === 'stopping'
+    phase === 'stopping' ||
+    phase === 'retrying'
+
+  const clearAutoRetry = useCallback(() => {
+    if (autoRetryTimerRef.current != null) {
+      window.clearTimeout(autoRetryTimerRef.current)
+      autoRetryTimerRef.current = null
+    }
+  }, [])
+
+  const hasRemainingWork = useCallback(() => {
+    const pending = itemsRef.current.some(
+      (item) => !downloadedRef.current.has(item.awemeId),
+    )
+    return pending || hasMoreRef.current
+  }, [])
+
+  const scheduleAutoRetry = useCallback(() => {
+    if (!hasRemainingWork()) return
+
+    clearAutoRetry()
+    const delay = randomDelayMs()
+    setPhase('retrying')
+    setStatusText(`将在 ${(delay / 1000).toFixed(1)}s 后自动重试…`)
+
+    autoRetryTimerRef.current = window.setTimeout(() => {
+      autoRetryTimerRef.current = null
+      void startRef.current()
+    }, delay)
+  }, [clearAutoRetry, hasRemainingWork])
 
   useEffect(() => {
     cancelRef.current = true
     runningRef.current = false
+    clearAutoRetry()
     setPhase('idle')
     setActiveId(null)
     setLoadMoreUsed(0)
@@ -109,27 +142,46 @@ export function useBatchDownload({
     setStatusText(null)
     setStopMessage(null)
     setStopReason(null)
-  }, [kind, cookie])
+  }, [kind, cookie, clearAutoRetry])
+
+  useEffect(() => () => clearAutoRetry(), [clearAutoRetry])
 
   const stop = useCallback(() => {
+    if (autoRetryTimerRef.current != null || phase === 'retrying') {
+      clearAutoRetry()
+      runningRef.current = false
+      setPhase('paused')
+      setActiveId(null)
+      setStopReason('user')
+      setStopMessage('已取消自动重试')
+      setStatusText(null)
+      return
+    }
     if (!runningRef.current) return
     cancelRef.current = true
     setPhase('stopping')
     setStatusText('正在停止…')
-  }, [])
+  }, [clearAutoRetry, phase])
 
   const clearStopBanner = useCallback(() => {
+    clearAutoRetry()
     setStopMessage(null)
     setStopReason(null)
-    if (phase === 'stopped' || phase === 'done' || phase === 'paused') {
+    if (
+      phase === 'stopped' ||
+      phase === 'done' ||
+      phase === 'paused' ||
+      phase === 'retrying'
+    ) {
       setPhase('idle')
       setActiveId(null)
       setStatusText(null)
     }
-  }, [phase])
+  }, [clearAutoRetry, phase])
 
   const start = useCallback(async () => {
     if (runningRef.current) return
+    clearAutoRetry()
     runningRef.current = true
     cancelRef.current = false
     setStopMessage(null)
@@ -145,10 +197,21 @@ export function useBatchDownload({
 
     const finish = (next: BatchPhase, reason: BatchStopReason, message: string | null) => {
       runningRef.current = false
-      setPhase(next)
       setActiveId(null)
       setStopReason(reason)
       setStopMessage(message)
+
+      const shouldAutoRetry =
+        next === 'stopped' &&
+        (reason === 'risk' || reason === 'error') &&
+        hasRemainingWork()
+
+      if (shouldAutoRetry) {
+        scheduleAutoRetry()
+        return
+      }
+
+      setPhase(next)
       setStatusText(null)
     }
 
@@ -295,7 +358,17 @@ export function useBatchDownload({
       const message = e instanceof Error ? e.message : String(e)
       finish('stopped', 'error', `批量下载异常中止：${message}`)
     }
-  }, [cookie, kind, loadMore, onDownloaded])
+  }, [
+    cookie,
+    kind,
+    loadMore,
+    onDownloaded,
+    clearAutoRetry,
+    hasRemainingWork,
+    scheduleAutoRetry,
+  ])
+
+  startRef.current = start
 
   return {
     phase,
