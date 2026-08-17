@@ -76,6 +76,8 @@ export function ResourceSniffDialog({
 
   const abortRef = useRef(false)
   const autoStartedRef = useRef(false)
+  const searchGenRef = useRef(0)
+  const [readySearchGen, setReadySearchGen] = useState(0)
   const onAutoFinishedRef = useRef(onAutoFinished)
   onAutoFinishedRef.current = onAutoFinished
   const onDownloadedRef = useRef(onDownloaded)
@@ -98,41 +100,46 @@ export function ResourceSniffDialog({
   useEffect(() => {
     if (!open || !track) return
     let cancelled = false
+    const gen = ++searchGenRef.current
     abortRef.current = false
     autoStartedRef.current = false
     setLoading(true)
     setError(null)
     setItems([])
     setLastPath(null)
+    setReadySearchGen(0)
     setAutoStatus(autoDownloadFirst ? '正在 B 站搜索…' : null)
     setAutoTargetBvid(null)
     const keyword = [track.name, track.artists].filter(Boolean).join(' ')
+    const durationMs = track.durationMs || undefined
     void (async () => {
       try {
-        const result = await searchBilibili(keyword, track.durationMs || undefined)
-        if (cancelled || abortRef.current) return
+        const result = await searchBilibili(keyword, durationMs)
+        if (cancelled || gen !== searchGenRef.current) return
         setItems(result)
+        setReadySearchGen(gen)
       } catch (e) {
-        if (cancelled || abortRef.current) return
+        if (cancelled || gen !== searchGenRef.current) return
         const message = e instanceof Error ? e.message : String(e)
         setError(message)
+        setReadySearchGen(gen)
         if (autoDownloadFirst) {
           onAutoFinishedRef.current?.({ status: 'error', message })
         }
       } finally {
-        if (!cancelled) setLoading(false)
+        if (!cancelled && gen === searchGenRef.current) setLoading(false)
       }
     })()
     return () => {
       cancelled = true
-      abortRef.current = true
     }
-  }, [open, track, autoDownloadFirst])
+  }, [open, track?.songId, autoDownloadFirst])
 
-  // 批量：结果上屏后等待 1–3 秒，再下载第一条
+  // 批量：仅在「当前这一轮搜索完成」后触发，避免吃到上一首歌的残留 items
   useEffect(() => {
     if (!open || !track || !autoDownloadFirst) return
     if (loading || error) return
+    if (readySearchGen === 0 || readySearchGen !== searchGenRef.current) return
     if (autoStartedRef.current) return
 
     if (items.length === 0) {
@@ -144,13 +151,15 @@ export function ResourceSniffDialog({
 
     autoStartedRef.current = true
     const first = items[0]
+    const currentTrack = track
     setAutoTargetBvid(first.bvid)
     const waitSec = randomIntInclusive(1, 3)
     setAutoStatus(`资源已展示，${waitSec}s 后下载首个结果…`)
 
     let cancelled = false
+    const startedGen = readySearchGen
     const timer = window.setTimeout(() => {
-      if (cancelled || abortRef.current) {
+      if (cancelled || startedGen !== searchGenRef.current) {
         onAutoFinishedRef.current?.({ status: 'aborted' })
         return
       }
@@ -158,28 +167,28 @@ export function ResourceSniffDialog({
         setDownloadingBvid(first.bvid)
         setAutoStatus('正在下载首个资源…')
         try {
-          const preferredTitle = `${track.artists || '未知'} - ${track.name}`
+          const preferredTitle = `${currentTrack.artists || '未知'} - ${currentTrack.name}`
           const result = await downloadBilibili({
             bvid: first.bvid,
-            songId: track.songId,
+            songId: currentTrack.songId,
             playlistId: playlist?.id,
             playlistName: playlist?.name,
             preferredTitle,
-            artists: track.artists,
+            artists: currentTrack.artists,
           })
-          if (abortRef.current) {
+          if (startedGen !== searchGenRef.current) {
             onAutoFinishedRef.current?.({ status: 'aborted' })
             return
           }
           setLastPath(result.path)
           const entry: BiliDownloadedEntry = {
-            songId: track.songId,
+            songId: currentTrack.songId,
             playlistId: playlist?.id ?? null,
             playlistName: playlist?.name ?? null,
             path: result.path,
             bvid: result.bvid,
             title: preferredTitle,
-            artists: track.artists || null,
+            artists: currentTrack.artists || null,
             downloadedAt: Math.floor(Date.now() / 1000),
           }
           onDownloadedRef.current?.(entry)
@@ -188,7 +197,7 @@ export function ResourceSniffDialog({
         } catch (e) {
           const message = e instanceof Error ? e.message : String(e)
           setAutoStatus(`下载失败：${message}`)
-          if (!abortRef.current) {
+          if (startedGen === searchGenRef.current) {
             onAutoFinishedRef.current?.({ status: 'error', message })
           }
         } finally {
@@ -201,7 +210,16 @@ export function ResourceSniffDialog({
       cancelled = true
       window.clearTimeout(timer)
     }
-  }, [open, track, autoDownloadFirst, loading, error, items, playlist])
+  }, [
+    open,
+    track,
+    autoDownloadFirst,
+    loading,
+    error,
+    items,
+    playlist,
+    readySearchGen,
+  ])
 
   const handleDownload = async (item: BiliSearchItem) => {
     if (!track || autoDownloadFirst) return
