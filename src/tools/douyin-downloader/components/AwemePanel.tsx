@@ -5,8 +5,8 @@ import { AnimatePresence, motion } from 'framer-motion'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
 import {
   faCircleCheck,
-  faDownload,
   faFolderOpen,
+  faHeart,
   faLayerGroup,
   faSatelliteDish,
   faSpinner,
@@ -17,8 +17,9 @@ import {
 import { revealItemInDir } from '@tauri-apps/plugin-opener'
 import { ErrorState } from '@/components/ErrorState'
 import { useToast } from '@/components/Toast'
-import { cachePreview, downloadAweme } from '../api/douyinApi'
+import { cachePreview, downloadAweme, unlikeAweme } from '../api/douyinApi'
 import { useBatchDownload } from '../hooks/useBatchDownload'
+import { useBatchUnlike } from '../hooks/useBatchUnlike'
 import { kindFolder } from '../hooks/useDownloadedAweme'
 import type { LoadMoreOutcome } from '../hooks/useAwemeList'
 import type { DouyinAweme, DouyinDownloadedEntry, DouyinListKind } from '../types'
@@ -34,6 +35,10 @@ interface AwemePanelProps {
   onRetry: () => void
   onLoadMore: () => Promise<LoadMoreOutcome>
   onDownloaded: (entry: DouyinDownloadedEntry) => void
+  onRefreshAfterUnlike: () => Promise<{
+    items: DouyinAweme[]
+    hasMore: boolean
+  } | null>
   onBatchActiveChange?: (active: boolean) => void
 }
 
@@ -62,11 +67,13 @@ export function AwemePanel({
   onRetry,
   onLoadMore,
   onDownloaded,
+  onRefreshAfterUnlike,
   onBatchActiveChange,
 }: AwemePanelProps) {
   const { toast } = useToast()
   const [selected, setSelected] = useState<DouyinAweme | null>(null)
   const [downloadingId, setDownloadingId] = useState<string | null>(null)
+  const [unlikingId, setUnlikingId] = useState<string | null>(null)
   const [lastPath, setLastPath] = useState<string | null>(null)
   const [previewSrc, setPreviewSrc] = useState<string | null>(null)
   const [previewLoading, setPreviewLoading] = useState(false)
@@ -99,9 +106,24 @@ export function AwemePanel({
     onDownloaded,
   })
 
+  const batchUnlike = useBatchUnlike({
+    cookie,
+    items,
+    hasMore,
+    loadMore: batchLoadMore,
+    onRefreshAfterUnlike,
+  })
+
+  const anyBatchActive = batch.isActive || batchUnlike.isActive
+  const followActiveId = batch.activeId ?? batchUnlike.activeId
+  const followPhase = batch.isActive ? batch.phase : batchUnlike.phase
+  const followLoadMoreUsed = batch.isActive
+    ? batch.loadMoreUsed
+    : batchUnlike.loadMoreUsed
+
   useEffect(() => {
-    onBatchActiveChange?.(batch.isActive)
-  }, [batch.isActive, onBatchActiveChange])
+    onBatchActiveChange?.(anyBatchActive)
+  }, [anyBatchActive, onBatchActiveChange])
 
   useEffect(() => {
     if (!selected) {
@@ -162,7 +184,7 @@ export function AwemePanel({
   }, [selected])
 
   const handleDownload = async (item: DouyinAweme) => {
-    if (downloadedById.has(item.awemeId) || downloadingId || batch.isActive) return
+    if (downloadedById.has(item.awemeId) || downloadingId || anyBatchActive) return
     setDownloadingId(item.awemeId)
     try {
       const result = await downloadAweme({
@@ -188,11 +210,30 @@ export function AwemePanel({
     }
   }
 
+  const handleUnlike = async (item: DouyinAweme) => {
+    if (kind !== 'favorite' || unlikingId || anyBatchActive) return
+    const ok = window.confirm(
+      `确定取消喜欢「${item.desc || item.awemeId}」？\n此操作会同步到抖音账号。`,
+    )
+    if (!ok) return
+    setUnlikingId(item.awemeId)
+    try {
+      await unlikeAweme(cookie, item.awemeId)
+      await onRefreshAfterUnlike()
+      if (selected?.awemeId === item.awemeId) setSelected(null)
+      toast('已取消喜欢', 'success')
+    } catch (e) {
+      toast(e instanceof Error ? e.message : String(e), 'danger')
+    } finally {
+      setUnlikingId(null)
+    }
+  }
+
   const selectedDownloaded = selected ? downloadedById.get(selected.awemeId) : undefined
 
   useEffect(() => {
-    if (!batch.activeId) return
-    const row = rowRefs.current.get(batch.activeId)
+    if (!followActiveId) return
+    const row = rowRefs.current.get(followActiveId)
     const root = scrollRef.current
     if (!row || !root) return
     const rowTop = row.offsetTop
@@ -208,11 +249,11 @@ export function AwemePanel({
         behavior: 'smooth',
       })
     }
-  }, [batch.activeId, batch.phase, items.length])
+  }, [followActiveId, followPhase, items.length])
 
   // 新数据追加后继续贴底，保持「下拉加载」观感
   useEffect(() => {
-    if (batch.phase !== 'loadingMore') return
+    if (followPhase !== 'loadingMore') return
     const root = scrollRef.current
     if (!root) return
 
@@ -228,16 +269,16 @@ export function AwemePanel({
       window.clearTimeout(t1)
       window.clearTimeout(t2)
     }
-  }, [batch.phase, batch.loadMoreUsed, items.length])
+  }, [followPhase, followLoadMoreUsed, items.length])
 
   useEffect(() => {
-    if (batch.isActive && selected) setSelected(null)
-  }, [batch.isActive, selected])
+    if (anyBatchActive && selected) setSelected(null)
+  }, [anyBatchActive, selected])
 
   useEffect(() => {
     const root = scrollRef.current
     const sentinel = sentinelRef.current
-    if (!root || !sentinel || !hasMore || loading || batch.isActive) return
+    if (!root || !sentinel || !hasMore || loading || anyBatchActive) return
 
     const observer = new IntersectionObserver(
       (entries) => {
@@ -247,30 +288,51 @@ export function AwemePanel({
     )
     observer.observe(sentinel)
     return () => observer.disconnect()
-  }, [hasMore, loading, items.length, batch.isActive])
+  }, [hasMore, loading, items.length, anyBatchActive])
 
   const pendingCount = items.filter((item) => !downloadedById.has(item.awemeId)).length
-  const busySingle = downloadingId !== null
-  const controlsLocked = batch.isActive || busySingle
+  const busySingle = downloadingId !== null || unlikingId !== null
+  const controlsLocked = anyBatchActive || busySingle
 
   const handleBatchClick = () => {
     if (batch.isActive) {
       batch.stop()
       return
     }
+    if (batchUnlike.isActive) return
     if (pendingCount === 0 && !hasMore) {
       toast('当前没有可下载的视频', 'neutral')
       return
     }
+    batchUnlike.clearStopBanner()
     batch.clearStopBanner()
     void batch.start()
+  }
+
+  const handleBatchUnlikeClick = () => {
+    if (batchUnlike.isActive) {
+      batchUnlike.stop()
+      return
+    }
+    if (batch.isActive) return
+    if (items.length === 0 && !hasMore) {
+      toast('当前没有可取消的喜欢', 'neutral')
+      return
+    }
+    const ok = window.confirm(
+      '确定批量取消喜欢？将按 1–10 秒随机间隔逐条取消，并持续加载直到没有更多内容。此操作会同步到抖音账号。',
+    )
+    if (!ok) return
+    batch.clearStopBanner()
+    batchUnlike.clearStopBanner()
+    void batchUnlike.start()
   }
 
   return (
     <>
       <section className="flex h-full min-h-0 flex-col overflow-hidden rounded-2xl border border-border-subtle bg-surface/60">
         <header className="shrink-0 border-b border-border-subtle px-4 py-3">
-          <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="flex flex-nowrap items-start justify-between gap-3">
             <div className="min-w-0">
               <p className="text-sm font-medium text-foreground">
                 {kind === 'favorite' ? '喜欢' : '作品'}
@@ -282,46 +344,98 @@ export function AwemePanel({
                 点击条目预览
               </p>
             </div>
-            <button
-              type="button"
-              disabled={busySingle || (pendingCount === 0 && !hasMore && !batch.isActive)}
-              onClick={handleBatchClick}
-              className={`inline-flex h-8 items-center gap-1.5 rounded-xl border px-3 text-[11px] transition-colors ${
-                batch.isActive
-                  ? 'border-danger/35 bg-danger/10 text-danger hover:bg-danger/15'
-                  : 'border-border bg-background text-foreground hover:border-muted hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-40'
-              }`}
-            >
-              <FontAwesomeIcon
-                icon={
-                  batch.isActive
-                    ? batch.phase === 'stopping'
-                      ? faSpinner
-                      : faStop
-                    : faLayerGroup
+            <div className="flex shrink-0 flex-nowrap items-center justify-end gap-2">
+              {kind === 'favorite' && (
+                <button
+                  type="button"
+                  disabled={
+                    busySingle ||
+                    batch.isActive ||
+                    (items.length === 0 && !hasMore && !batchUnlike.isActive)
+                  }
+                  onClick={handleBatchUnlikeClick}
+                  className={`inline-flex h-8 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-xl border px-3 text-[11px] transition-colors ${
+                    batchUnlike.isActive
+                      ? 'border-danger/35 bg-danger/10 text-danger hover:bg-danger/15'
+                      : 'border-border bg-background text-foreground hover:border-muted hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-40'
+                  }`}
+                >
+                  <FontAwesomeIcon
+                    icon={
+                      batchUnlike.isActive
+                        ? batchUnlike.phase === 'stopping'
+                          ? faSpinner
+                          : faStop
+                        : faHeart
+                    }
+                    className={`h-3 w-3 ${batchUnlike.phase === 'stopping' ? 'animate-spin' : ''}`}
+                  />
+                  {batchUnlike.isActive
+                    ? batchUnlike.phase === 'stopping'
+                      ? '正在停止'
+                      : batchUnlike.phase === 'retrying'
+                        ? '取消自动重试'
+                        : '停止取消喜欢'
+                    : '一键取消喜欢'}
+                </button>
+              )}
+              <button
+                type="button"
+                disabled={
+                  busySingle ||
+                  batchUnlike.isActive ||
+                  (pendingCount === 0 && !hasMore && !batch.isActive)
                 }
-                className={`h-3 w-3 ${batch.phase === 'stopping' ? 'animate-spin' : ''}`}
-              />
-              {batch.isActive
-                ? batch.phase === 'stopping'
-                  ? '正在停止'
-                  : batch.phase === 'retrying'
-                    ? '取消自动重试'
-                    : '停止批量'
-                : kind === 'favorite'
-                  ? '一键下载喜欢'
-                  : '一键下载作品'}
-            </button>
+                onClick={handleBatchClick}
+                className={`inline-flex h-8 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-xl border px-3 text-[11px] transition-colors ${
+                  batch.isActive
+                    ? 'border-danger/35 bg-danger/10 text-danger hover:bg-danger/15'
+                    : 'border-border bg-background text-foreground hover:border-muted hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-40'
+                }`}
+              >
+                <FontAwesomeIcon
+                  icon={
+                    batch.isActive
+                      ? batch.phase === 'stopping'
+                        ? faSpinner
+                        : faStop
+                      : faLayerGroup
+                  }
+                  className={`h-3 w-3 ${batch.phase === 'stopping' ? 'animate-spin' : ''}`}
+                />
+                {batch.isActive
+                  ? batch.phase === 'stopping'
+                    ? '正在停止'
+                    : batch.phase === 'retrying'
+                      ? '取消自动重试'
+                      : '停止批量'
+                  : kind === 'favorite'
+                    ? '一键下载喜欢'
+                    : '一键下载作品'}
+              </button>
+            </div>
           </div>
 
           {(batch.isActive || batch.statusText) && (
             <p className="mt-2 text-[11px] text-muted">
-              {batch.statusText || '批量进行中…'}
+              {batch.statusText || '批量下载进行中…'}
               <span className="text-subtle">
                 {' '}
                 · 成功 {batch.successCount}
                 {' · '}
                 加载更多 {batch.loadMoreUsed} 次
+              </span>
+            </p>
+          )}
+
+          {(batchUnlike.isActive || batchUnlike.statusText) && (
+            <p className="mt-2 text-[11px] text-muted">
+              {batchUnlike.statusText || '批量取消喜欢进行中…'}
+              <span className="text-subtle">
+                {' '}
+                · 成功 {batchUnlike.successCount}
+                {' · '}
+                加载更多 {batchUnlike.loadMoreUsed} 次
               </span>
             </p>
           )}
@@ -354,6 +468,37 @@ export function AwemePanel({
               </button>
             </div>
           )}
+
+          {batchUnlike.stopMessage &&
+            (!batchUnlike.isActive || batchUnlike.phase === 'retrying') && (
+              <div
+                className={`mt-2 flex items-start gap-2 rounded-xl border px-3 py-2 text-[11px] leading-relaxed ${
+                  batchUnlike.stopReason === 'risk' || batchUnlike.stopReason === 'error'
+                    ? 'border-danger/30 bg-danger/10 text-danger'
+                    : 'border-border-subtle bg-background/80 text-muted'
+                }`}
+                role="status"
+              >
+                {(batchUnlike.stopReason === 'risk' ||
+                  batchUnlike.stopReason === 'error') && (
+                  <FontAwesomeIcon
+                    icon={faTriangleExclamation}
+                    className="mt-0.5 h-3 w-3 shrink-0"
+                  />
+                )}
+                <div className="min-w-0 flex-1">
+                  <p>{batchUnlike.stopMessage}</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={batchUnlike.clearStopBanner}
+                  className="shrink-0 text-subtle transition-colors hover:text-foreground"
+                  aria-label="关闭提示"
+                >
+                  <FontAwesomeIcon icon={faXmark} className="h-3 w-3" />
+                </button>
+              </div>
+            )}
         </header>
 
         <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto">
@@ -377,7 +522,7 @@ export function AwemePanel({
                 <col style={{ width: '5.5rem' }} />
                 <col style={{ width: '4.5rem' }} />
                 <col style={{ width: '4rem' }} />
-                <col style={{ width: '9.5rem' }} />
+                <col style={{ width: kind === 'favorite' ? '15.5rem' : '9.5rem' }} />
               </colgroup>
               <thead className="sticky top-0 z-10 bg-surface/95 backdrop-blur-sm">
                 <tr className="border-b border-border-subtle text-[10px] uppercase tracking-wider text-subtle">
@@ -387,14 +532,19 @@ export function AwemePanel({
                   <th className="px-2 py-2 font-medium">作者</th>
                   <th className="px-2 py-2 text-right font-medium">点赞</th>
                   <th className="px-2 py-2 text-right font-medium">时长</th>
-                  <th className="px-3 py-2 text-right font-medium">嗅探</th>
+                  <th className="whitespace-nowrap px-3 py-2 text-right font-medium">操作</th>
                 </tr>
               </thead>
               <tbody>
                 {items.map((item, index) => {
                   const downloaded = downloadedById.get(item.awemeId)
-                  const busy = downloadingId === item.awemeId || batch.activeId === item.awemeId
-                  const isBatchTarget = batch.activeId === item.awemeId
+                  const busyDownload =
+                    downloadingId === item.awemeId || batch.activeId === item.awemeId
+                  const busyUnlike =
+                    unlikingId === item.awemeId || batchUnlike.activeId === item.awemeId
+                  const isBatchTarget =
+                    batch.activeId === item.awemeId ||
+                    batchUnlike.activeId === item.awemeId
                   return (
                     <tr
                       key={item.awemeId}
@@ -403,10 +553,12 @@ export function AwemePanel({
                         else rowRefs.current.delete(item.awemeId)
                       }}
                       onClick={() => {
-                        if (!batch.isActive) setSelected(item)
+                        if (!anyBatchActive) setSelected(item)
                       }}
                       className={`border-b border-border-subtle/60 transition-colors duration-200 ${
-                        batch.isActive ? 'cursor-default' : 'cursor-pointer hover:bg-surface-hover/50'
+                        anyBatchActive
+                          ? 'cursor-default'
+                          : 'cursor-pointer hover:bg-surface-hover/50'
                       } ${isBatchTarget ? 'bg-surface-hover/70' : ''}`}
                     >
                       <td className="px-2 py-2.5 text-right tabular-nums text-subtle">
@@ -440,14 +592,34 @@ export function AwemePanel({
                         {formatDuration(item.durationMs)}
                       </td>
                       <td
-                        className="px-3 py-2.5 text-right"
+                        className="whitespace-nowrap px-3 py-2.5 text-right"
                         onClick={(e) => e.stopPropagation()}
                       >
-                        <div className="flex items-center justify-end gap-1">
+                        <div className="flex flex-nowrap items-center justify-end gap-1">
+                          {kind === 'favorite' && (
+                            <button
+                              type="button"
+                              disabled={controlsLocked && !busyUnlike}
+                              onClick={() => void handleUnlike(item)}
+                              aria-busy={busyUnlike}
+                              className={`inline-flex h-7 shrink-0 items-center gap-1 whitespace-nowrap rounded-lg px-2 text-[11px] transition-colors duration-200 ${
+                                busyUnlike
+                                  ? 'cursor-wait text-danger'
+                                  : 'text-danger/80 hover:bg-danger/10 hover:text-danger disabled:cursor-not-allowed disabled:opacity-40'
+                              }`}
+                              title="取消喜欢"
+                            >
+                              <FontAwesomeIcon
+                                icon={busyUnlike ? faSpinner : faHeart}
+                                className={`h-3 w-3 ${busyUnlike ? 'animate-spin' : ''}`}
+                              />
+                              {busyUnlike ? '取消中' : '取消喜欢'}
+                            </button>
+                          )}
                           {downloaded ? (
                             <>
                               <span
-                                className="inline-flex items-center gap-1 px-1.5 text-[11px] text-success"
+                                className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap px-1.5 text-[11px] text-success"
                                 title={downloaded.path}
                               >
                                 <FontAwesomeIcon icon={faCircleCheck} className="h-3 w-3" />
@@ -456,7 +628,7 @@ export function AwemePanel({
                               <button
                                 type="button"
                                 onClick={() => void revealItemInDir(downloaded.path)}
-                                className="inline-flex h-7 w-7 items-center justify-center rounded-lg text-muted transition-colors hover:bg-background hover:text-foreground"
+                                className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-muted transition-colors hover:bg-background hover:text-foreground"
                                 title="打开文件位置"
                                 aria-label="打开文件位置"
                               >
@@ -468,18 +640,18 @@ export function AwemePanel({
                               type="button"
                               disabled={controlsLocked}
                               onClick={() => void handleDownload(item)}
-                              aria-busy={busy}
-                              className={`inline-flex h-7 items-center gap-1.5 rounded-lg px-2.5 text-[11px] transition-colors duration-200 ${
-                                busy
+                              aria-busy={busyDownload}
+                              className={`inline-flex h-7 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg px-2.5 text-[11px] transition-colors duration-200 ${
+                                busyDownload
                                   ? 'cursor-wait text-foreground'
                                   : 'text-muted hover:bg-background hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40'
                               }`}
                             >
                               <FontAwesomeIcon
-                                icon={busy ? faSpinner : faSatelliteDish}
-                                className={`h-3 w-3 ${busy ? 'animate-spin' : ''}`}
+                                icon={busyDownload ? faSpinner : faSatelliteDish}
+                                className={`h-3 w-3 ${busyDownload ? 'animate-spin' : ''}`}
                               />
-                              {busy ? '下载中' : '下载'}
+                              {busyDownload ? '下载中' : '下载'}
                             </button>
                           )}
                         </div>
@@ -495,11 +667,11 @@ export function AwemePanel({
             <div ref={sentinelRef} className="flex h-10 items-center justify-center">
               {hasMore ? (
                 <p className="flex items-center gap-1.5 text-[11px] text-subtle">
-                  {(loading || batch.phase === 'loadingMore') && (
+                  {(loading || followPhase === 'loadingMore') && (
                     <FontAwesomeIcon icon={faSpinner} className="h-2.5 w-2.5 animate-spin" />
                   )}
-                  {batch.phase === 'loadingMore'
-                    ? `批量加载更多（第 ${batch.loadMoreUsed + 1} 次）…`
+                  {followPhase === 'loadingMore'
+                    ? `批量加载更多（第 ${followLoadMoreUsed + 1} 次）…`
                     : loading
                       ? '加载中…'
                       : ''}

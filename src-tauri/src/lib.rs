@@ -54,6 +54,7 @@ pub fn run() {
             douyin::douyin_qr_start,
             douyin::douyin_qr_poll,
             douyin::douyin_list_aweme,
+            douyin::douyin_unlike,
             douyin::douyin_download,
             douyin::douyin_list_downloaded,
             douyin::douyin_cache_preview

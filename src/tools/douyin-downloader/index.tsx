@@ -25,7 +25,7 @@ export function DouyinDownloaderTool() {
           抖音下载器
         </h1>
         <p className="mt-1 text-xs text-muted">
-          登录后查看作品 / 喜欢 · 下载目录与已下载状态按分类分开 · 一键下载会持续加载直到没有更多内容
+          登录后查看作品 / 喜欢 · 下载目录与已下载状态按分类分开 · 一键下载 / 取消喜欢会持续处理直到没有更多内容
         </p>
       </header>
 
@@ -80,6 +80,7 @@ export function DouyinDownloaderTool() {
                   onRetry={() => void list.reload()}
                   onLoadMore={() => list.loadMore()}
                   onDownloaded={downloaded.markDownloaded}
+                  onRefreshAfterUnlike={() => list.reload({ clear: false })}
                   onBatchActiveChange={setBatchActive}
                 />
               </motion.div>

@@ -35,6 +35,10 @@ export async function listAweme(
   })
 }
 
+export async function unlikeAweme(cookie: string, awemeId: string) {
+  return invoke<void>('douyin_unlike', { cookie, awemeId })
+}
+
 export async function downloadAweme(params: {
   cookie: string
   awemeId: string

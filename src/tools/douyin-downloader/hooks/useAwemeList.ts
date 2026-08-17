@@ -46,43 +46,56 @@ export function useAwemeList(
     loadingKind === kind ||
     (!!cookie && !!secUid && !state.loaded && !state.error)
 
-  const reload = useCallback(async () => {
+  const reload = useCallback(async (options?: { clear?: boolean }) => {
     if (!cookie || !secUid) {
-      setByKind({ favorite: emptyState(), post: emptyState() })
+      const empty = { favorite: emptyState(), post: emptyState() }
+      byKindRef.current = empty
+      setByKind(empty)
       setLoadingKind(null)
-      return
+      return null
     }
 
     const target = kind
     const seq = ++reqSeq.current
     setLoadingKind(target)
-    setByKind((prev) => ({
-      ...prev,
-      [target]: emptyState(),
-    }))
+    if (options?.clear !== false) {
+      setByKind((prev) => {
+        const next = { ...prev, [target]: emptyState() }
+        byKindRef.current = next
+        return next
+      })
+    }
 
     try {
       const result = await listAweme(cookie, secUid, target, 0)
-      if (seq !== reqSeq.current) return
-      setByKind((prev) => ({
-        ...prev,
-        [target]: {
-          items: result.items,
-          cursor: result.maxCursor,
-          hasMore: result.hasMore,
-          error: null,
-          loaded: true,
-        },
-      }))
+      if (seq !== reqSeq.current) return null
+      const nextState: KindListState = {
+        items: result.items,
+        cursor: result.maxCursor,
+        hasMore: result.hasMore,
+        error: null,
+        loaded: true,
+      }
+      setByKind((prev) => {
+        const next = { ...prev, [target]: nextState }
+        byKindRef.current = next
+        return next
+      })
+      return { items: result.items, hasMore: result.hasMore }
     } catch (e) {
-      if (seq !== reqSeq.current) return
-      setByKind((prev) => ({
-        ...prev,
-        [target]: {
-          ...emptyState(),
-          error: e instanceof Error ? e.message : String(e),
-        },
-      }))
+      if (seq !== reqSeq.current) return null
+      setByKind((prev) => {
+        const next = {
+          ...prev,
+          [target]: {
+            ...emptyState(),
+            error: e instanceof Error ? e.message : String(e),
+          },
+        }
+        byKindRef.current = next
+        return next
+      })
+      return null
     } finally {
       if (seq === reqSeq.current) setLoadingKind(null)
     }

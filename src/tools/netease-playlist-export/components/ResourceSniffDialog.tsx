@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { AnimatePresence, motion } from 'framer-motion'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
@@ -19,13 +19,22 @@ import {
 } from '../api/bilibiliSniff'
 import type { NeteasePlaylist, NeteaseTrack } from '../types'
 
+export type SniffAutoOutcome =
+  | { status: 'downloaded'; entry: BiliDownloadedEntry }
+  | { status: 'empty' }
+  | { status: 'error'; message: string }
+  | { status: 'aborted' }
+
 interface ResourceSniffDialogProps {
   open: boolean
   track: NeteaseTrack | null
   playlist: NeteasePlaylist | null
   downloadedEntry?: BiliDownloadedEntry | null
+  /** 批量模式：搜索结果展示后，随机等待 1–3 秒再下载第一条 */
+  autoDownloadFirst?: boolean
   onClose: () => void
   onDownloaded?: (entry: BiliDownloadedEntry) => void
+  onAutoFinished?: (outcome: SniffAutoOutcome) => void
 }
 
 function formatPlay(n: number) {
@@ -42,13 +51,19 @@ function formatDelta(ms: number | null) {
   return `时长差 ${sign}${sec}s`
 }
 
+function randomIntInclusive(min: number, max: number) {
+  return min + Math.floor(Math.random() * (max - min + 1))
+}
+
 export function ResourceSniffDialog({
   open,
   track,
   playlist,
   downloadedEntry = null,
+  autoDownloadFirst = false,
   onClose,
   onDownloaded,
+  onAutoFinished,
 }: ResourceSniffDialogProps) {
   const { toast } = useToast()
   const [loading, setLoading] = useState(false)
@@ -56,11 +71,20 @@ export function ResourceSniffDialog({
   const [items, setItems] = useState<BiliSearchItem[]>([])
   const [downloadingBvid, setDownloadingBvid] = useState<string | null>(null)
   const [lastPath, setLastPath] = useState<string | null>(null)
+  const [autoStatus, setAutoStatus] = useState<string | null>(null)
+  const [autoTargetBvid, setAutoTargetBvid] = useState<string | null>(null)
+
+  const abortRef = useRef(false)
+  const autoStartedRef = useRef(false)
+  const onAutoFinishedRef = useRef(onAutoFinished)
+  onAutoFinishedRef.current = onAutoFinished
+  const onDownloadedRef = useRef(onDownloaded)
+  onDownloadedRef.current = onDownloaded
 
   useEffect(() => {
     if (!open) return
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
+      if (e.key === 'Escape' && !autoDownloadFirst) onClose()
     }
     window.addEventListener('keydown', onKey)
     const prev = document.body.style.overflow
@@ -69,35 +93,118 @@ export function ResourceSniffDialog({
       window.removeEventListener('keydown', onKey)
       document.body.style.overflow = prev
     }
-  }, [open, onClose])
+  }, [open, onClose, autoDownloadFirst])
 
   useEffect(() => {
     if (!open || !track) return
     let cancelled = false
+    abortRef.current = false
+    autoStartedRef.current = false
     setLoading(true)
     setError(null)
     setItems([])
     setLastPath(null)
+    setAutoStatus(autoDownloadFirst ? '正在 B 站搜索…' : null)
+    setAutoTargetBvid(null)
     const keyword = [track.name, track.artists].filter(Boolean).join(' ')
     void (async () => {
       try {
         const result = await searchBilibili(keyword, track.durationMs || undefined)
-        if (cancelled) return
+        if (cancelled || abortRef.current) return
         setItems(result)
       } catch (e) {
-        if (cancelled) return
-        setError(e instanceof Error ? e.message : String(e))
+        if (cancelled || abortRef.current) return
+        const message = e instanceof Error ? e.message : String(e)
+        setError(message)
+        if (autoDownloadFirst) {
+          onAutoFinishedRef.current?.({ status: 'error', message })
+        }
       } finally {
         if (!cancelled) setLoading(false)
       }
     })()
     return () => {
       cancelled = true
+      abortRef.current = true
     }
-  }, [open, track])
+  }, [open, track, autoDownloadFirst])
+
+  // 批量：结果上屏后等待 1–3 秒，再下载第一条
+  useEffect(() => {
+    if (!open || !track || !autoDownloadFirst) return
+    if (loading || error) return
+    if (autoStartedRef.current) return
+
+    if (items.length === 0) {
+      autoStartedRef.current = true
+      setAutoStatus('未找到相关稿件，跳过')
+      onAutoFinishedRef.current?.({ status: 'empty' })
+      return
+    }
+
+    autoStartedRef.current = true
+    const first = items[0]
+    setAutoTargetBvid(first.bvid)
+    const waitSec = randomIntInclusive(1, 3)
+    setAutoStatus(`资源已展示，${waitSec}s 后下载首个结果…`)
+
+    let cancelled = false
+    const timer = window.setTimeout(() => {
+      if (cancelled || abortRef.current) {
+        onAutoFinishedRef.current?.({ status: 'aborted' })
+        return
+      }
+      void (async () => {
+        setDownloadingBvid(first.bvid)
+        setAutoStatus('正在下载首个资源…')
+        try {
+          const preferredTitle = `${track.artists || '未知'} - ${track.name}`
+          const result = await downloadBilibili({
+            bvid: first.bvid,
+            songId: track.songId,
+            playlistId: playlist?.id,
+            playlistName: playlist?.name,
+            preferredTitle,
+            artists: track.artists,
+          })
+          if (abortRef.current) {
+            onAutoFinishedRef.current?.({ status: 'aborted' })
+            return
+          }
+          setLastPath(result.path)
+          const entry: BiliDownloadedEntry = {
+            songId: track.songId,
+            playlistId: playlist?.id ?? null,
+            playlistName: playlist?.name ?? null,
+            path: result.path,
+            bvid: result.bvid,
+            title: preferredTitle,
+            artists: track.artists || null,
+            downloadedAt: Math.floor(Date.now() / 1000),
+          }
+          onDownloadedRef.current?.(entry)
+          setAutoStatus('下载完成')
+          onAutoFinishedRef.current?.({ status: 'downloaded', entry })
+        } catch (e) {
+          const message = e instanceof Error ? e.message : String(e)
+          setAutoStatus(`下载失败：${message}`)
+          if (!abortRef.current) {
+            onAutoFinishedRef.current?.({ status: 'error', message })
+          }
+        } finally {
+          setDownloadingBvid(null)
+        }
+      })()
+    }, waitSec * 1000)
+
+    return () => {
+      cancelled = true
+      window.clearTimeout(timer)
+    }
+  }, [open, track, autoDownloadFirst, loading, error, items, playlist])
 
   const handleDownload = async (item: BiliSearchItem) => {
-    if (!track) return
+    if (!track || autoDownloadFirst) return
     setDownloadingBvid(item.bvid)
     try {
       const preferredTitle = `${track.artists || '未知'} - ${track.name}`
@@ -129,6 +236,14 @@ export function ResourceSniffDialog({
     }
   }
 
+  const handleClose = () => {
+    if (autoDownloadFirst) {
+      abortRef.current = true
+      onAutoFinishedRef.current?.({ status: 'aborted' })
+    }
+    onClose()
+  }
+
   const openPath = lastPath ?? downloadedEntry?.path ?? null
 
   if (typeof document === 'undefined') return null
@@ -143,12 +258,16 @@ export function ResourceSniffDialog({
           exit={{ opacity: 0 }}
           transition={{ duration: 0.16 }}
         >
-          <button
-            type="button"
-            aria-label="关闭"
-            className="absolute inset-0 bg-black/55"
-            onClick={onClose}
-          />
+          {autoDownloadFirst ? (
+            <div className="absolute inset-0 bg-black/55" aria-hidden />
+          ) : (
+            <button
+              type="button"
+              aria-label="关闭"
+              className="absolute inset-0 bg-black/55"
+              onClick={onClose}
+            />
+          )}
           <motion.div
             role="dialog"
             aria-modal="true"
@@ -166,6 +285,9 @@ export function ResourceSniffDialog({
                   className="font-display text-base font-semibold tracking-tight text-foreground"
                 >
                   资源嗅探
+                  {autoDownloadFirst ? (
+                    <span className="ml-2 text-xs font-normal text-muted">批量中</span>
+                  ) : null}
                 </h2>
                 <p className="mt-1 truncate text-xs text-muted">
                   {track.name}
@@ -173,15 +295,25 @@ export function ResourceSniffDialog({
                   {track.artists || '未知歌手'}
                   <span className="text-subtle"> · 源：B站 · 下载含视频+音频</span>
                 </p>
+                {autoStatus && (
+                  <p className="mt-1.5 flex items-center gap-1.5 text-[11px] text-muted">
+                    {(loading || downloadingBvid) && (
+                      <FontAwesomeIcon icon={faSpinner} className="h-2.5 w-2.5 animate-spin" />
+                    )}
+                    {autoStatus}
+                  </p>
+                )}
               </div>
-              <button
-                type="button"
-                onClick={onClose}
-                className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-subtle transition-colors hover:bg-surface-hover hover:text-foreground"
-                aria-label="关闭弹框"
-              >
-                <FontAwesomeIcon icon={faXmark} className="h-3.5 w-3.5" />
-              </button>
+              {!autoDownloadFirst && (
+                <button
+                  type="button"
+                  onClick={handleClose}
+                  className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-subtle transition-colors hover:bg-surface-hover hover:text-foreground"
+                  aria-label="关闭弹框"
+                >
+                  <FontAwesomeIcon icon={faXmark} className="h-3.5 w-3.5" />
+                </button>
+              )}
             </div>
 
             <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
@@ -211,13 +343,16 @@ export function ResourceSniffDialog({
                     const busy = downloadingBvid === item.bvid
                     const alreadyDownloaded =
                       !!downloadedEntry && downloadedEntry.bvid === item.bvid
+                    const isAutoTarget = autoTargetBvid === item.bvid
                     return (
                       <li
                         key={item.bvid}
                         className={`flex gap-3 rounded-xl border p-3 transition-colors duration-200 ${
-                          alreadyDownloaded
-                            ? 'border-success/40 bg-success/10'
-                            : 'border-border-subtle bg-background/40'
+                          isAutoTarget
+                            ? 'border-foreground/25 bg-surface-hover/60'
+                            : alreadyDownloaded
+                              ? 'border-success/40 bg-success/10'
+                              : 'border-border-subtle bg-background/40'
                         }`}
                       >
                         {item.cover ? (
@@ -252,7 +387,11 @@ export function ResourceSniffDialog({
                         </div>
                         <button
                           type="button"
-                          disabled={alreadyDownloaded || downloadingBvid !== null}
+                          disabled={
+                            alreadyDownloaded ||
+                            downloadingBvid !== null ||
+                            autoDownloadFirst
+                          }
                           onClick={() => void handleDownload(item)}
                           aria-busy={busy}
                           title={

@@ -273,6 +273,51 @@ async fn signed_get(cookie: &str, path: &str, mut params: serde_json::Map<String
     serde_json::from_str(&text).map_err(|e| format!("JSON 解析失败: {e} · {}", text.chars().take(120).collect::<String>()))
 }
 
+async fn signed_post(
+    cookie: &str,
+    path: &str,
+    mut query: serde_json::Map<String, Value>,
+    form: &[(String, String)],
+) -> Result<Value, String> {
+    let bogus = sign_a_bogus(&Value::Object(query.clone()))?;
+    query.insert("a_bogus".into(), json!(bogus));
+    let url = format!("https://www.douyin.com{path}?{}", build_query(&query));
+    let body = form
+        .iter()
+        .map(|(k, v)| format!("{}={}", urlencoding_encode(k), urlencoding_encode(v)))
+        .collect::<Vec<_>>()
+        .join("&");
+
+    let mut headers = header_map(cookie)?;
+    headers.insert(
+        reqwest::header::CONTENT_TYPE,
+        HeaderValue::from_static("application/x-www-form-urlencoded; charset=UTF-8"),
+    );
+
+    let resp = http_client()
+        .post(&url)
+        .headers(headers)
+        .body(body)
+        .send()
+        .await
+        .map_err(|e| format!("网络错误: {e}"))?;
+    let status = resp.status();
+    let text = resp
+        .text()
+        .await
+        .map_err(|e| format!("读取响应失败: {e}"))?;
+    if text.trim().is_empty() {
+        return Err(format!(
+            "接口返回空响应 (HTTP {status})，可能 Cookie 失效或触发风控，请重新复制登录 Cookie"
+        ));
+    }
+    if !status.is_success() {
+        let snippet: String = text.chars().take(160).collect();
+        return Err(format!("HTTP {status} · {snippet}"));
+    }
+    serde_json::from_str(&text).map_err(|e| format!("JSON 解析失败: {e} · {}", text.chars().take(120).collect::<String>()))
+}
+
 fn first_url(list: Option<&Vec<Value>>) -> String {
     list.and_then(|arr| arr.first())
         .and_then(|v| v.as_str())
@@ -709,6 +754,41 @@ pub async fn douyin_list_aweme(
         max_cursor,
         has_more,
     })
+}
+
+/// 取消喜欢（等价于网页端熄灭红色爱心）。`type=0` 取消，`type=1` 点赞。
+#[tauri::command]
+pub async fn douyin_unlike(cookie: String, aweme_id: String) -> Result<(), String> {
+    let cookie = normalize_cookie(&cookie)?;
+    let aweme_id = aweme_id.trim().to_string();
+    if aweme_id.is_empty() {
+        return Err("aweme_id 不能为空".into());
+    }
+
+    let query = common_params();
+    let form = vec![
+        ("aweme_id".into(), aweme_id),
+        ("item_type".into(), "0".into()),
+        ("type".into(), "0".into()),
+    ];
+
+    let body = signed_post(
+        &cookie,
+        "/aweme/v1/web/commit/item/digg/",
+        query,
+        &form,
+    )
+    .await?;
+
+    let status_code = body.get("status_code").and_then(|v| v.as_i64()).unwrap_or(-1);
+    if status_code != 0 {
+        let msg = body
+            .get("status_msg")
+            .and_then(|v| v.as_str())
+            .unwrap_or("取消喜欢失败");
+        return Err(format!("{msg}（code={status_code}）"));
+    }
+    Ok(())
 }
 
 #[tauri::command]
