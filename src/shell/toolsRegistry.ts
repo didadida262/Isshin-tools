@@ -1,10 +1,17 @@
 import type { ComponentType } from 'react'
 import type { IconDefinition } from '@fortawesome/fontawesome-svg-core'
-import { faChartLine, faMusic, faScissors, faDownload } from '@fortawesome/free-solid-svg-icons'
+import {
+  faChartLine,
+  faClapperboard,
+  faMusic,
+  faScissors,
+  faDownload,
+} from '@fortawesome/free-solid-svg-icons'
 import { NeteasePlaylistExportTool } from '@/tools/netease-playlist-export'
 import { GoldFactorsTool } from '@/tools/gold-factors'
 import { DouyinTrimEndTool } from '@/tools/douyin-trim-end'
 import { DouyinDownloaderTool } from '@/tools/douyin-downloader'
+import { BilibiliDownloaderTool } from '@/tools/bilibili-downloader'
 
 export interface ToolDefinition {
   id: string
@@ -42,6 +49,13 @@ export const toolsRegistry: ToolDefinition[] = [
     description: '批量切除视频末尾冗余帧',
     icon: faScissors,
     component: DouyinTrimEndTool,
+  },
+  {
+    id: 'bilibili-downloader',
+    name: 'B站资源下载器',
+    description: '关键词嗅探 · 预览播放 · 下载到本地',
+    icon: faClapperboard,
+    component: BilibiliDownloaderTool,
   },
 ]
 
