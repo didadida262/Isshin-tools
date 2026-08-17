@@ -219,7 +219,7 @@ export function TrackPanel({
           setLastPath(outcome.entry.path)
           setBatchStatus(`已下载：${track.name}`)
         } else if (outcome.status === 'empty') {
-          setBatchStatus(`未找到资源，跳过：${track.name}`)
+          setBatchStatus(`无可下载资源，跳过：${track.name}`)
         } else if (outcome.status === 'error') {
           setBatchActive(false)
           setBatchStopping(false)

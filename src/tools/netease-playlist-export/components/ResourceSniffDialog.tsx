@@ -135,7 +135,7 @@ export function ResourceSniffDialog({
     }
   }, [open, track?.songId, autoDownloadFirst])
 
-  // 批量：仅在「当前这一轮搜索完成」后触发，避免吃到上一首歌的残留 items
+  // 批量：当前搜索完成后，按结果依次尝试下载；取流失败则换下一条
   useEffect(() => {
     if (!open || !track || !autoDownloadFirst) return
     if (loading || error) return
@@ -150,38 +150,53 @@ export function ResourceSniffDialog({
     }
 
     autoStartedRef.current = true
-    const first = items[0]
-    if (!first) {
-      setAutoStatus('未找到相关稿件，跳过')
-      onAutoFinishedRef.current?.({ status: 'empty' })
-      return
-    }
+    const candidates = [...items]
     const currentTrack = track
-    setAutoTargetBvid(first.bvid)
-    const waitSec = randomIntInclusive(1, 3)
-    setAutoStatus(`资源已展示，${waitSec}s 后下载首个结果…`)
-
-    let cancelled = false
     const startedGen = readySearchGen
-    const timer = window.setTimeout(() => {
-      if (cancelled || startedGen !== searchGenRef.current) {
-        onAutoFinishedRef.current?.({ status: 'aborted' })
-        return
-      }
-      void (async () => {
-        setDownloadingBvid(first.bvid)
-        setAutoStatus('正在下载首个资源…')
+    let cancelled = false
+
+    const sleepSec = (sec: number) =>
+      new Promise<void>((resolve) => {
+        window.setTimeout(resolve, sec * 1000)
+      })
+
+    void (async () => {
+      for (let i = 0; i < candidates.length; i += 1) {
+        if (cancelled || startedGen !== searchGenRef.current) {
+          onAutoFinishedRef.current?.({ status: 'aborted' })
+          return
+        }
+
+        const item = candidates[i]
+        if (!item) continue
+
+        setAutoTargetBvid(item.bvid)
+        const waitSec = randomIntInclusive(1, 3)
+        setAutoStatus(
+          i === 0
+            ? `资源已展示，${waitSec}s 后下载第 1 个结果…`
+            : `上一条取流失败，${waitSec}s 后尝试第 ${i + 1} 个结果…`,
+        )
+        await sleepSec(waitSec)
+
+        if (cancelled || startedGen !== searchGenRef.current) {
+          onAutoFinishedRef.current?.({ status: 'aborted' })
+          return
+        }
+
+        setDownloadingBvid(item.bvid)
+        setAutoStatus(`正在下载第 ${i + 1}/${candidates.length} 个资源…`)
         try {
           const preferredTitle = `${currentTrack.artists || '未知'} - ${currentTrack.name}`
           const result = await downloadBilibili({
-            bvid: first.bvid,
+            bvid: item.bvid,
             songId: currentTrack.songId,
             playlistId: playlist?.id,
             playlistName: playlist?.name,
             preferredTitle,
             artists: currentTrack.artists,
           })
-          if (startedGen !== searchGenRef.current) {
+          if (cancelled || startedGen !== searchGenRef.current) {
             onAutoFinishedRef.current?.({ status: 'aborted' })
             return
           }
@@ -197,23 +212,32 @@ export function ResourceSniffDialog({
             downloadedAt: Math.floor(Date.now() / 1000),
           }
           onDownloadedRef.current?.(entry)
-          setAutoStatus('下载完成')
-          onAutoFinishedRef.current?.({ status: 'downloaded', entry })
-        } catch (e) {
-          const message = e instanceof Error ? e.message : String(e)
-          setAutoStatus(`下载失败：${message}`)
-          if (startedGen === searchGenRef.current) {
-            onAutoFinishedRef.current?.({ status: 'error', message })
-          }
-        } finally {
+          setAutoStatus(`下载完成（第 ${i + 1} 个结果）`)
           setDownloadingBvid(null)
+          onAutoFinishedRef.current?.({ status: 'downloaded', entry })
+          return
+        } catch (e) {
+          setDownloadingBvid(null)
+          const message = e instanceof Error ? e.message : String(e)
+          setAutoStatus(`第 ${i + 1} 个失败：${message}`)
+          // 还有下一条则继续；否则本曲跳过
+          if (i >= candidates.length - 1) {
+            if (startedGen === searchGenRef.current) {
+              setAutoStatus(`全部 ${candidates.length} 个结果均失败，跳过`)
+              onAutoFinishedRef.current?.({ status: 'empty' })
+            }
+            return
+          }
         }
-      })()
-    }, waitSec * 1000)
+      }
+
+      if (startedGen === searchGenRef.current) {
+        onAutoFinishedRef.current?.({ status: 'empty' })
+      }
+    })()
 
     return () => {
       cancelled = true
-      window.clearTimeout(timer)
     }
   }, [
     open,
