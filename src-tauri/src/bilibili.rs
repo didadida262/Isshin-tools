@@ -738,7 +738,7 @@ pub async fn bilibili_download(
             .filter(|s| !s.trim().is_empty())
             .unwrap_or(&title),
     );
-    let output = out_dir.join(format!("{stem}-{bvid}.mp4"));
+    let output = out_dir.join(format!("{song_id}_{stem}-{bvid}.mp4"));
 
     if let Some(dash) = play.pointer("/data/dash") {
         let videos = dash
