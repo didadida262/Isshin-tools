@@ -162,8 +162,12 @@ fn inject_web_security_params(params: &mut serde_json::Map<String, Value>, cooki
         }
     }
     if let Some(fp) = cookie_value(cookie, "s_v_web_id") {
-        params.entry("verifyFp".into()).or_insert_with(|| json!(fp.clone()));
-        params.entry("fp".into()).or_insert_with(|| json!(fp));
+        if !params.contains_key("verifyFp") {
+            params.insert("verifyFp".into(), json!(fp.clone()));
+        }
+        if !params.contains_key("fp") {
+            params.insert("fp".into(), json!(fp));
+        }
     }
     if !params.contains_key("msToken") {
         if let Some(v) = cookie_value(cookie, "msToken") {
