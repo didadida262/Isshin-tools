@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { AnimatePresence, motion } from 'framer-motion'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
@@ -67,8 +67,10 @@ export function ResourceSniffDialog({
   const { toast } = useToast()
   const toolVisible = useToolVisible()
   const [loading, setLoading] = useState(false)
+  const [loadingMore, setLoadingMore] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [items, setItems] = useState<BiliSearchItem[]>([])
+  const [hasMore, setHasMore] = useState(false)
   const [downloadingBvid, setDownloadingBvid] = useState<string | null>(null)
   const [lastPath, setLastPath] = useState<string | null>(null)
   const [autoStatus, setAutoStatus] = useState<string | null>(null)
@@ -77,6 +79,11 @@ export function ResourceSniffDialog({
   const abortRef = useRef(false)
   const autoStartedRef = useRef(false)
   const searchGenRef = useRef(0)
+  const pageRef = useRef(1)
+  const hasMoreRef = useRef(false)
+  const loadingMoreRef = useRef(false)
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const sentinelRef = useRef<HTMLDivElement>(null)
   const [readySearchGen, setReadySearchGen] = useState(0)
   const onAutoFinishedRef = useRef(onAutoFinished)
   onAutoFinishedRef.current = onAutoFinished
@@ -104,10 +111,15 @@ export function ResourceSniffDialog({
     abortRef.current = false
     autoStartedRef.current = false
     setLoading(true)
+    setLoadingMore(false)
     setError(null)
     setItems([])
+    setHasMore(false)
     setLastPath(null)
     setReadySearchGen(0)
+    pageRef.current = 1
+    hasMoreRef.current = false
+    loadingMoreRef.current = false
     setAutoStatus(autoDownloadFirst ? '正在 B 站搜索…' : null)
     setAutoTargetBvid(null)
     const keyword = [track.name, track.artists].filter(Boolean).join(' ')
@@ -136,12 +148,12 @@ export function ResourceSniffDialog({
             )
           }
           setLoading(true)
-          const result = await searchBilibili(keyword, durationMs)
+          const result = await searchBilibili(keyword, durationMs, 1)
           if (cancelled || gen !== searchGenRef.current) return
 
           if (
             autoDownloadFirst &&
-            result.length === 0 &&
+            result.items.length === 0 &&
             attempt < EMPTY_RETRY_MAX
           ) {
             const waitSec = randomIntInclusive(EMPTY_WAIT_MIN, EMPTY_WAIT_MAX)
@@ -155,7 +167,10 @@ export function ResourceSniffDialog({
             continue
           }
 
-          setItems(result)
+          setItems(result.items)
+          pageRef.current = result.page
+          hasMoreRef.current = result.hasMore && !autoDownloadFirst
+          setHasMore(hasMoreRef.current)
           setReadySearchGen(gen)
           setLoading(false)
           return
@@ -193,6 +208,52 @@ export function ResourceSniffDialog({
       cancelled = true
     }
   }, [open, track?.songId, autoDownloadFirst])
+
+  const loadMore = useCallback(async () => {
+    if (!open || !track || autoDownloadFirst) return
+    if (!hasMoreRef.current || loadingMoreRef.current) return
+    const gen = searchGenRef.current
+    const nextPage = pageRef.current + 1
+    loadingMoreRef.current = true
+    setLoadingMore(true)
+    const keyword = [track.name, track.artists].filter(Boolean).join(' ')
+    const durationMs = track.durationMs || undefined
+    try {
+      const result = await searchBilibili(keyword, durationMs, nextPage)
+      if (gen !== searchGenRef.current) return
+      setItems((prev) => {
+        const seen = new Set(prev.map((item) => item.bvid))
+        const extra = result.items.filter((item) => !seen.has(item.bvid))
+        return extra.length > 0 ? [...prev, ...extra] : prev
+      })
+      pageRef.current = result.page
+      hasMoreRef.current = result.hasMore && result.items.length > 0
+      setHasMore(hasMoreRef.current)
+    } catch (e) {
+      if (gen !== searchGenRef.current) return
+      toast(e instanceof Error ? e.message : String(e), 'danger')
+    } finally {
+      if (gen === searchGenRef.current) {
+        loadingMoreRef.current = false
+        setLoadingMore(false)
+      }
+    }
+  }, [open, track, autoDownloadFirst, toast])
+
+  useEffect(() => {
+    const root = scrollRef.current
+    const sentinel = sentinelRef.current
+    if (!root || !sentinel || !hasMore || loading || autoDownloadFirst) return
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) void loadMore()
+      },
+      { root, rootMargin: '80px 0px', threshold: 0 },
+    )
+    observer.observe(sentinel)
+    return () => observer.disconnect()
+  }, [hasMore, loading, items.length, autoDownloadFirst, loadMore])
 
   // 批量：当前搜索完成后，按结果依次尝试下载；取流失败则换下一条
   useEffect(() => {
@@ -448,8 +509,8 @@ export function ResourceSniffDialog({
               )}
             </div>
 
-            <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
-              {loading && (
+            <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
+              {loading && items.length === 0 && (
                 <div
                   className="flex h-full min-h-[12rem] items-center justify-center gap-2 text-xs text-muted"
                   role="status"
@@ -458,7 +519,7 @@ export function ResourceSniffDialog({
                   正在 B 站搜索…
                 </div>
               )}
-              {error && !loading && (
+              {error && !loading && items.length === 0 && (
                 <div className="flex h-full min-h-[12rem] items-center justify-center px-6" role="alert">
                   <p className="text-center text-xs text-danger">{error}</p>
                 </div>
@@ -468,7 +529,7 @@ export function ResourceSniffDialog({
                   <p className="text-xs text-muted">未找到相关稿件</p>
                 </div>
               )}
-              {!loading && items.length > 0 && (
+              {items.length > 0 && (
                 <ul className="space-y-2">
                   {items.map((item) => {
                     const delta = formatDelta(item.durationDeltaMs)
@@ -557,6 +618,20 @@ export function ResourceSniffDialog({
                     )
                   })}
                 </ul>
+              )}
+              {items.length > 0 && !autoDownloadFirst && (
+                <div ref={sentinelRef} className="flex h-10 items-center justify-center">
+                  {hasMore ? (
+                    <p className="flex items-center gap-1.5 text-[11px] text-subtle">
+                      {loadingMore && (
+                        <FontAwesomeIcon icon={faSpinner} className="h-2.5 w-2.5 animate-spin" />
+                      )}
+                      {loadingMore ? '加载更多…' : ''}
+                    </p>
+                  ) : (
+                    <p className="text-[11px] text-subtle">已加载全部</p>
+                  )}
+                </div>
               )}
             </div>
 

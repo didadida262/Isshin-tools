@@ -40,6 +40,14 @@ pub struct BiliSearchItem {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct BiliSearchPage {
+    pub items: Vec<BiliSearchItem>,
+    pub page: u32,
+    pub has_more: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct BiliDownloadResult {
     pub path: String,
     pub bvid: String,
@@ -350,18 +358,21 @@ async fn get_json(url: &str) -> Result<Value, String> {
 pub async fn bilibili_search(
     keyword: String,
     duration_ms: Option<u64>,
-) -> Result<Vec<BiliSearchItem>, String> {
+    page: Option<u32>,
+) -> Result<BiliSearchPage, String> {
+    const PAGE_SIZE: u32 = 12;
     let keyword = keyword.trim().to_string();
     if keyword.is_empty() {
         return Err("搜索关键词为空".into());
     }
+    let page = page.unwrap_or(1).max(1);
 
     let mixin = fetch_mixin_key().await?;
     let params = vec![
         ("search_type".into(), "video".into()),
         ("keyword".into(), keyword),
-        ("page".into(), "1".into()),
-        ("page_size".into(), "12".into()),
+        ("page".into(), page.to_string()),
+        ("page_size".into(), PAGE_SIZE.to_string()),
     ];
     let signed = sign_wbi(&params, &mixin);
     let query = signed
@@ -443,7 +454,24 @@ pub async fn bilibili_search(
         items.sort_by(|a, b| b.play.cmp(&a.play));
     }
 
-    Ok(items)
+    let num_pages = body
+        .pointer("/data/numPages")
+        .or_else(|| body.pointer("/data/num_pages"))
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0);
+    let has_more = if items.is_empty() {
+        false
+    } else if num_pages > 0 {
+        u64::from(page) < num_pages
+    } else {
+        items.len() as u32 >= PAGE_SIZE
+    };
+
+    Ok(BiliSearchPage {
+        items,
+        page,
+        has_more,
+    })
 }
 
 #[derive(Deserialize)]

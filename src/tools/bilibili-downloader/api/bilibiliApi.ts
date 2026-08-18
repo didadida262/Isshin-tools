@@ -40,10 +40,14 @@ export function bvidToSongId(bvid: string): number {
   return (h >>> 0) || 1
 }
 
-export async function searchBilibili(keyword: string): Promise<BiliSearchItem[]> {
-  return invoke<BiliSearchItem[]>('bilibili_search', {
+export async function searchBilibili(
+  keyword: string,
+  page = 1,
+): Promise<{ items: BiliSearchItem[]; page: number; hasMore: boolean }> {
+  return invoke('bilibili_search', {
     keyword,
     durationMs: null,
+    page,
   })
 }
 

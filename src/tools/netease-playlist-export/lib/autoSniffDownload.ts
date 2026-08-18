@@ -2,6 +2,7 @@ import {
   downloadBilibili,
   searchBilibili,
   type BiliDownloadedEntry,
+  type BiliSearchItem,
 } from '../api/bilibiliSniff'
 import type { NeteasePlaylist, NeteaseTrack } from '../types'
 
@@ -49,7 +50,7 @@ export async function runAutoSniffDownload(opts: {
   const durationMs = track.durationMs || undefined
   const preferredTitle = `${track.artists || '未知'} - ${track.name}`
 
-  let items: Awaited<ReturnType<typeof searchBilibili>> = []
+  let items: BiliSearchItem[] = []
   let attempt = 0
 
   while (!isCancelled()) {
@@ -60,7 +61,7 @@ export async function runAutoSniffDownload(opts: {
           ? `正在 B 站搜索：${track.name}`
           : `正在重试搜索（第 ${attempt}/${EMPTY_RETRY_MAX} 次）：${track.name}`,
       )
-      items = await searchBilibili(keyword, durationMs)
+      items = (await searchBilibili(keyword, durationMs)).items
       if (isCancelled()) return { status: 'aborted' }
 
       if (items.length === 0 && attempt < EMPTY_RETRY_MAX) {

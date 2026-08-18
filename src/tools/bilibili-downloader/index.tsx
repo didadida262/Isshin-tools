@@ -44,8 +44,8 @@ export function BilibiliDownloaderTool() {
     setHasSearched(true)
     try {
       const result = await searchBilibili(q)
-      setItems(result)
-      if (result.length === 0) {
+      setItems(result.items)
+      if (result.items.length === 0) {
         toast('未找到相关稿件', 'neutral')
       }
     } catch (err) {

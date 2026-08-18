@@ -39,13 +39,21 @@ export interface BiliDownloadRequest {
   artists?: string
 }
 
+export interface BiliSearchPage {
+  items: BiliSearchItem[]
+  page: number
+  hasMore: boolean
+}
+
 export async function searchBilibili(
   keyword: string,
   durationMs?: number,
-): Promise<BiliSearchItem[]> {
-  return invoke<BiliSearchItem[]>('bilibili_search', {
+  page = 1,
+): Promise<BiliSearchPage> {
+  return invoke<BiliSearchPage>('bilibili_search', {
     keyword,
     durationMs: durationMs ?? null,
+    page,
   })
 }
 
