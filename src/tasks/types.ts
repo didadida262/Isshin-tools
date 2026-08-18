@@ -16,6 +16,9 @@ export interface AppTask {
   detail: string
   status: TaskStatus
   successCount?: number
+  /** 当前处理项在列表中的 1-based 序号，与表格 # 列一致 */
+  itemIndex?: number
+  itemTotal?: number
   createdAt: number
   updatedAt: number
 }

@@ -180,6 +180,7 @@ export function useBatchDownload({
     }
 
     const kindLabel = kind === 'favorite' ? '喜欢' : '作品'
+    const found = activeId ? items.findIndex((item) => item.awemeId === activeId) : -1
     upsertTask({
       id: TASK_IDS.douyinBatch,
       source: 'douyin',
@@ -188,6 +189,8 @@ export function useBatchDownload({
       detail: statusText ?? stopMessage ?? '准备中…',
       status: taskStatusFromBatch(phase, stopReason),
       successCount,
+      itemIndex: found >= 0 ? found + 1 : undefined,
+      itemTotal: items.length > 0 ? items.length : undefined,
     })
     registerCancelHandler(TASK_IDS.douyinBatch, isActive ? stop : null)
   }, [
@@ -199,6 +202,8 @@ export function useBatchDownload({
     kind,
     isActive,
     stop,
+    activeId,
+    items,
   ])
 
   const clearStopBanner = useCallback(() => {

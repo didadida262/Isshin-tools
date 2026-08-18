@@ -58,9 +58,13 @@ export function upsertTask(
     const prev = tasks[index]
     if (!prev) return
     const next = [...tasks]
+    const merged = { ...input } as typeof input
+    for (const key of Object.keys(merged) as (keyof typeof merged)[]) {
+      if (merged[key] === undefined) delete merged[key]
+    }
     next[index] = {
       ...prev,
-      ...input,
+      ...merged,
       createdAt: prev.createdAt,
       updatedAt: now,
     }

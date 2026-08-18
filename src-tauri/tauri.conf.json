@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "Isshin Tools",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "identifier": "com.isshin.tools",
   "build": {
     "frontendDist": "../dist",
@@ -26,7 +26,12 @@
       "assetProtocol": {
         "enable": true,
         "scope": {
-          "allow": ["$APPDATA/**", "$APPLOCALDATA/**", "$HOME/**", "**"],
+          "allow": [
+            "$APPDATA/**",
+            "$APPLOCALDATA/**",
+            "$HOME/**",
+            "**"
+          ],
           "requireLiteralLeadingDot": false
         }
       }
@@ -35,7 +40,9 @@
   "bundle": {
     "active": true,
     "targets": "all",
-    "externalBin": ["binaries/ffmpeg"],
+    "externalBin": [
+      "binaries/ffmpeg"
+    ],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

@@ -1,6 +1,6 @@
 [package]
 name = "isshin-tools"
-version = "0.1.0"
+version = "1.0.0"
 description = "Isshin Tools — personal desktop utility client"
 authors = ["Isshin"]
 license = "MIT"

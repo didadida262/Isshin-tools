@@ -115,6 +115,12 @@ export function TrackPanel({
     return n
   }, [tracks, bySongId])
 
+  const batchIndex = useMemo(() => {
+    if (batchSongId == null) return null
+    const i = tracks.findIndex((t) => t.songId === batchSongId)
+    return i >= 0 ? i + 1 : null
+  }, [batchSongId, tracks])
+
   useEffect(() => {
     if (batchSongId == null) return
     const row = rowRefs.current.get(batchSongId)
@@ -163,6 +169,7 @@ export function TrackPanel({
           ? 'cancelled'
           : 'success'
 
+    const found = batchSongId == null ? -1 : tracks.findIndex((t) => t.songId === batchSongId)
     upsertTask({
       id: TASK_IDS.neteaseBatch,
       source: 'netease',
@@ -171,13 +178,17 @@ export function TrackPanel({
       detail: batchStatus ?? '准备中…',
       status,
       successCount: batchSuccess,
+      itemIndex: found >= 0 ? found + 1 : undefined,
+      itemTotal: tracks.length > 0 ? tracks.length : undefined,
     })
   }, [
     batchActive,
     batchStopping,
     batchStatus,
     batchSuccess,
+    batchSongId,
     playlist,
+    tracks,
   ])
 
   const handleExport = async (format: ExportFormat) => {
@@ -369,6 +380,9 @@ export function TrackPanel({
 
         {(batchActive || batchStatus) && (
           <p className="mt-2 text-[11px] text-muted">
+            {batchIndex != null && (
+              <span className="tabular-nums text-subtle">#{batchIndex} · </span>
+            )}
             {batchStatus || '批量进行中…'}
             {batchActive && (
               <span className="text-subtle"> · 成功 {batchSuccess}</span>

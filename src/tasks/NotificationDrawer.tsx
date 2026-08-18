@@ -85,8 +85,20 @@ function TaskRow({ task }: { task: AppTask }) {
               {task.detail}
             </p>
           )}
-          {task.successCount != null && task.successCount > 0 && (
-            <p className="mt-1 text-[11px] text-subtle">成功 {task.successCount}</p>
+          {(task.itemIndex != null || (task.successCount != null && task.successCount > 0)) && (
+            <p className="mt-1 text-[11px] tabular-nums text-subtle">
+              {task.itemIndex != null && (
+                <>
+                  序号 {task.itemIndex}
+                  {task.itemTotal != null ? ` / ${task.itemTotal}` : ''}
+                </>
+              )}
+              {task.itemIndex != null &&
+                task.successCount != null &&
+                task.successCount > 0 &&
+                ' · '}
+              {task.successCount != null && task.successCount > 0 && `成功 ${task.successCount}`}
+            </p>
           )}
           <div className="mt-2 flex items-center gap-2">
             {canCancel && (

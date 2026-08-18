@@ -124,6 +124,9 @@ export function AwemePanel({
   const followLoadMoreUsed = batch.isActive
     ? batch.loadMoreUsed
     : batchUnlike.loadMoreUsed
+  const batchDownloadIndex = batch.activeId
+    ? items.findIndex((item) => item.awemeId === batch.activeId)
+    : -1
 
   useEffect(() => {
     onBatchActiveChange?.(anyBatchActive)
@@ -449,6 +452,9 @@ export function AwemePanel({
 
           {(batch.isActive || batch.statusText) && (
             <p className="mt-2 text-[11px] text-muted">
+              {batchDownloadIndex >= 0 && (
+                <span className="tabular-nums text-subtle">#{batchDownloadIndex + 1} · </span>
+              )}
               {batch.statusText || '批量下载进行中…'}
               <span className="text-subtle">
                 {' '}

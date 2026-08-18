@@ -12,17 +12,17 @@ interface SidebarProps {
 export function Sidebar({ activeToolId, onSelect }: SidebarProps) {
   return (
     <aside className="flex h-full w-60 shrink-0 flex-col border-r border-border-subtle bg-surface/80 backdrop-blur-md">
-      <div className="flex items-center gap-2.5 border-b border-border-subtle px-4 py-4">
+      <div className="flex items-center gap-3 border-b border-border-subtle px-3 py-4">
         <img
           src={logoIsshin}
           alt="Isshin"
-          className="h-11 w-11 shrink-0 rounded-xl object-cover ring-1 ring-border/50"
+          className="h-14 w-14 shrink-0 rounded-xl object-cover ring-1 ring-border/50"
         />
         <div className="min-w-0">
-          <p className="font-display text-sm font-semibold tracking-tight text-foreground">
+          <p className="font-display text-base font-semibold leading-tight tracking-tight text-foreground">
             Isshin Tools
           </p>
-          <p className="truncate text-[11px] text-subtle">Personal toolkit</p>
+          <p className="mt-0.5 truncate text-xs text-subtle">Personal toolkit</p>
         </div>
       </div>
 
@@ -42,7 +42,7 @@ export function Sidebar({ activeToolId, onSelect }: SidebarProps) {
 
       <div className="flex items-center justify-between gap-2 border-t border-border-subtle px-4 py-3">
         <p className="text-[11px] text-subtle">
-          v0.1.0 · {toolsRegistry.length} tools
+          v{__APP_VERSION__} · {toolsRegistry.length} tools
         </p>
         <NotificationBell />
       </div>
