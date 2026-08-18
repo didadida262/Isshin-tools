@@ -11,6 +11,7 @@ import {
   faCircleCheck,
   faLayerGroup,
   faStop,
+  faRotateRight,
 } from '@fortawesome/free-solid-svg-icons'
 import { motion } from 'framer-motion'
 import gsap from 'gsap'
@@ -90,7 +91,8 @@ export function TrackPanel({
   const scrollRef = useRef<HTMLDivElement>(null)
   const rowRefs = useRef(new Map<number, HTMLTableRowElement>())
   const cancelBatchRef = useRef(false)
-  const { bySongId, markDownloaded, reload } = useDownloadedTracks()
+  const { bySongId, markDownloaded, reload, syncing, syncFromDisk } =
+    useDownloadedTracks()
   const bySongIdRef = useRef(bySongId)
   bySongIdRef.current = bySongId
   const appliedSeqKey = useRef('')
@@ -369,6 +371,31 @@ export function TrackPanel({
     void startBatch()
   }
 
+  const handleSyncStatus = async () => {
+    if (batchActive || syncing || exporting !== null) return
+    try {
+      const result = await syncFromDisk()
+      const parts: string[] = []
+      if (result.added > 0) parts.push(`新增 ${result.added}`)
+      if (result.removed > 0) parts.push(`移除 ${result.removed}`)
+      if (result.updated > 0) parts.push(`更新 ${result.updated}`)
+      const summary =
+        parts.length > 0
+          ? parts.join(' · ')
+          : `无变化 · 共 ${result.entries.length} 首`
+      toast(`状态已同步 · ${summary}`, 'success')
+      if (result.skipped > 0) {
+        toast(
+          `有 ${result.skipped} 个文件无法识别（需保留 歌曲ID 与 BV 号命名）`,
+          'neutral',
+        )
+      }
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e)
+      toast(`状态同步失败：${message}`, 'danger')
+    }
+  }
+
   return (
     <section className="flex h-full min-h-0 flex-col overflow-hidden rounded-2xl border border-border-subtle bg-surface/60">
       <header className="shrink-0 border-b border-border-subtle px-4 py-3">
@@ -392,6 +419,7 @@ export function TrackPanel({
                 !playlist ||
                 tracks.length === 0 ||
                 exporting !== null ||
+                syncing ||
                 (!batchActive && pendingCount === 0)
               }
               onClick={handleBatchClick}
@@ -411,17 +439,42 @@ export function TrackPanel({
                   : '停止批量'
                 : '一键嗅探下载'}
             </button>
+            <button
+              type="button"
+              disabled={!playlist || exporting !== null || batchActive || syncing}
+              onClick={() => void handleSyncStatus()}
+              title="扫描 downloads/网易云音乐，按本地文件同步已下载状态"
+              className="inline-flex h-8 items-center gap-1.5 whitespace-nowrap rounded-xl border border-border bg-background px-2.5 text-xs text-foreground transition-all duration-200 hover:border-muted hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <FontAwesomeIcon
+                icon={syncing ? faSpinner : faRotateRight}
+                className={`h-3 w-3 ${syncing ? 'animate-spin' : ''}`}
+              />
+              {syncing ? '同步中' : '状态同步'}
+            </button>
             <ExportButton
               label="JSON"
               icon={faFileCode}
-              disabled={!playlist || tracks.length === 0 || exporting !== null || batchActive}
+              disabled={
+                !playlist ||
+                tracks.length === 0 ||
+                exporting !== null ||
+                batchActive ||
+                syncing
+              }
               loading={exporting === 'json'}
               onClick={() => void handleExport('json')}
             />
             <ExportButton
               label="CSV"
               icon={faTable}
-              disabled={!playlist || tracks.length === 0 || exporting !== null || batchActive}
+              disabled={
+                !playlist ||
+                tracks.length === 0 ||
+                exporting !== null ||
+                batchActive ||
+                syncing
+              }
               loading={exporting === 'csv'}
               onClick={() => void handleExport('csv')}
             />

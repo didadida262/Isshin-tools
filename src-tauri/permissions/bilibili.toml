@@ -1,4 +1,4 @@
 [[permission]]
 identifier = "allow-bilibili"
 description = "Allow Bilibili search and video/audio download for playlist resource sniffing"
-commands.allow = ["bilibili_search", "bilibili_download", "bilibili_list_downloaded", "bilibili_apply_track_seq"]
+commands.allow = ["bilibili_search", "bilibili_download", "bilibili_list_downloaded", "bilibili_sync_downloaded", "bilibili_apply_track_seq"]

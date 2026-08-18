@@ -78,6 +78,18 @@ export async function listDownloadedBilibili(): Promise<BiliDownloadedEntry[]> {
   return invoke<BiliDownloadedEntry[]>('bilibili_list_downloaded')
 }
 
+export interface BiliSyncResult {
+  entries: BiliDownloadedEntry[]
+  added: number
+  removed: number
+  updated: number
+  skipped: number
+}
+
+export async function syncDownloadedBilibili(): Promise<BiliSyncResult> {
+  return invoke<BiliSyncResult>('bilibili_sync_downloaded')
+}
+
 export async function applyPlaylistTrackSeq(
   playlistId: number,
   songIds: number[],

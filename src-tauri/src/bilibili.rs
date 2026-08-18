@@ -308,6 +308,82 @@ fn strip_seq_and_song_id_prefix(name: &str, song_id: u64) -> String {
     name.to_string()
 }
 
+/// Parse app-named media files:
+/// - `{seq}_{songId}_{title}-{bvid}.mp4`
+/// - `{songId}_{title}-{bvid}.mp4`
+fn parse_downloaded_media_name(name: &str) -> Option<(u64, String, String)> {
+    let lower = name.to_ascii_lowercase();
+    let stem = lower
+        .strip_suffix(".mp4")
+        .and_then(|_| name.get(..name.len().saturating_sub(4)))?;
+    let bv_pos = stem.rfind("-BV")?;
+    let bvid = stem[bv_pos + 1..].to_string();
+    if bvid.len() < 3
+        || !bvid.starts_with("BV")
+        || !bvid.chars().all(|c| c.is_ascii_alphanumeric())
+    {
+        return None;
+    }
+    let before = &stem[..bv_pos];
+    let (first, rest) = before.split_once('_')?;
+    if first.is_empty() || !first.chars().all(|c| c.is_ascii_digit()) || rest.is_empty() {
+        return None;
+    }
+    if let Some((second, title)) = rest.split_once('_') {
+        if !second.is_empty() && second.chars().all(|c| c.is_ascii_digit()) && !title.is_empty() {
+            let song_id: u64 = second.parse().ok()?;
+            if song_id > 0 {
+                return Some((song_id, title.to_string(), bvid));
+            }
+        }
+    }
+    let song_id: u64 = first.parse().ok()?;
+    if song_id == 0 {
+        return None;
+    }
+    Some((song_id, rest.to_string(), bvid))
+}
+
+fn file_mtime_secs(path: &Path) -> u64 {
+    std::fs::metadata(path)
+        .and_then(|m| m.modified())
+        .ok()
+        .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
+fn collect_downloaded_media_files(root: &Path) -> Result<Vec<PathBuf>, String> {
+    let mut out = Vec::new();
+    let mut stack = vec![root.to_path_buf()];
+    while let Some(dir) = stack.pop() {
+        let entries = std::fs::read_dir(&dir).map_err(|e| format!("读取目录失败: {e}"))?;
+        for entry in entries {
+            let entry = entry.map_err(|e| format!("读取目录项失败: {e}"))?;
+            let path = entry.path();
+            let name = entry.file_name().to_string_lossy().into_owned();
+            if name.starts_with('.') || name == "index.json" {
+                continue;
+            }
+            let file_type = entry
+                .file_type()
+                .map_err(|e| format!("读取文件类型失败: {e}"))?;
+            if file_type.is_dir() {
+                stack.push(path);
+                continue;
+            }
+            if !file_type.is_file() {
+                continue;
+            }
+            if !name.to_ascii_lowercase().ends_with(".mp4") {
+                continue;
+            }
+            out.push(path);
+        }
+    }
+    Ok(out)
+}
+
 fn resolve_download_root(app: &AppHandle) -> Result<PathBuf, String> {
     let from_manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .parent()
@@ -701,6 +777,156 @@ pub async fn bilibili_list_downloaded(app: AppHandle) -> Result<Vec<BiliDownload
     }
     alive.sort_by_key(|e| e.song_id);
     Ok(alive)
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BiliSyncResult {
+    pub entries: Vec<BiliDownloadedEntry>,
+    pub added: u32,
+    pub removed: u32,
+    pub updated: u32,
+    pub skipped: u32,
+}
+
+#[tauri::command]
+pub async fn bilibili_sync_downloaded(app: AppHandle) -> Result<BiliSyncResult, String> {
+    let root = resolve_download_root(&app)?;
+    let _guard = index_lock().lock().await;
+    let old_index = load_index(&root).await?;
+    let files = collect_downloaded_media_files(&root)?;
+
+    struct FoundMedia {
+        path: PathBuf,
+        title: String,
+        bvid: String,
+        mtime: u64,
+    }
+
+    let mut by_song: std::collections::HashMap<u64, FoundMedia> = std::collections::HashMap::new();
+    let mut skipped = 0u32;
+    for path in files {
+        let Some(fname) = path.file_name().map(|n| n.to_string_lossy().into_owned()) else {
+            skipped += 1;
+            continue;
+        };
+        let Some((song_id, title, bvid)) = parse_downloaded_media_name(&fname) else {
+            skipped += 1;
+            continue;
+        };
+        let mtime = file_mtime_secs(&path);
+        match by_song.get(&song_id) {
+            Some(prev) => {
+                let prefer_new = match old_index.entries.get(&song_id.to_string()) {
+                    Some(old) if Path::new(&old.path) == path.as_path() => true,
+                    Some(old) if Path::new(&old.path) == prev.path.as_path() => false,
+                    _ => mtime >= prev.mtime,
+                };
+                if prefer_new {
+                    by_song.insert(
+                        song_id,
+                        FoundMedia {
+                            path,
+                            title,
+                            bvid,
+                            mtime,
+                        },
+                    );
+                }
+            }
+            None => {
+                by_song.insert(
+                    song_id,
+                    FoundMedia {
+                        path,
+                        title,
+                        bvid,
+                        mtime,
+                    },
+                );
+            }
+        }
+    }
+
+    let mut next = DownloadIndex {
+        version: 1,
+        entries: Default::default(),
+    };
+    let mut added = 0u32;
+    let mut updated = 0u32;
+    let mut removed = 0u32;
+
+    for (song_id, found) in by_song {
+        let key = song_id.to_string();
+        let path_str = found.path.to_string_lossy().to_string();
+        let playlist_name = found
+            .path
+            .parent()
+            .and_then(|p| p.file_name())
+            .map(|n| n.to_string_lossy().into_owned())
+            .filter(|n| {
+                let root_name = root.file_name().and_then(|x| x.to_str()).unwrap_or("");
+                n != root_name
+            });
+
+        if let Some(old) = old_index.entries.get(&key) {
+            let path_changed = old.path != path_str;
+            let entry = BiliDownloadedEntry {
+                song_id,
+                playlist_id: old.playlist_id,
+                playlist_name: playlist_name.or_else(|| old.playlist_name.clone()),
+                path: path_str,
+                bvid: if found.bvid.is_empty() {
+                    old.bvid.clone()
+                } else {
+                    found.bvid
+                },
+                title: if found.title.is_empty() {
+                    old.title.clone()
+                } else {
+                    found.title
+                },
+                artists: old.artists.clone(),
+                downloaded_at: old.downloaded_at.max(1),
+            };
+            if path_changed || entry.bvid != old.bvid {
+                updated += 1;
+            }
+            next.entries.insert(key, entry);
+        } else {
+            added += 1;
+            next.entries.insert(
+                key,
+                BiliDownloadedEntry {
+                    song_id,
+                    playlist_id: None,
+                    playlist_name,
+                    path: path_str,
+                    bvid: found.bvid,
+                    title: found.title,
+                    artists: None,
+                    downloaded_at: found.mtime.max(1),
+                },
+            );
+        }
+    }
+
+    for key in old_index.entries.keys() {
+        if !next.entries.contains_key(key) {
+            removed += 1;
+        }
+    }
+
+    save_index(&root, &next).await?;
+    let mut entries: Vec<BiliDownloadedEntry> = next.entries.into_values().collect();
+    entries.sort_by_key(|e| e.song_id);
+    Ok(BiliSyncResult {
+        entries,
+        added,
+        removed,
+        updated,
+        skipped,
+    })
 }
 
 #[tauri::command]
