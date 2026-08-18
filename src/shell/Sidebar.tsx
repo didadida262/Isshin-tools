@@ -1,6 +1,7 @@
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
 import { motion } from 'framer-motion'
 import logoIsshin from '@/assets/logo_isshin_agent.png'
+import { NotificationBell } from '@/tasks'
 import { toolsRegistry, type ToolDefinition } from './toolsRegistry'
 
 interface SidebarProps {
@@ -39,8 +40,11 @@ export function Sidebar({ activeToolId, onSelect }: SidebarProps) {
         ))}
       </nav>
 
-      <div className="border-t border-border-subtle px-4 py-3">
-          <p className="text-[11px] text-subtle">v0.1.0 · {toolsRegistry.length} tools</p>
+      <div className="flex items-center justify-between gap-2 border-t border-border-subtle px-4 py-3">
+        <p className="text-[11px] text-subtle">
+          v0.1.0 · {toolsRegistry.length} tools
+        </p>
+        <NotificationBell />
       </div>
     </aside>
   )

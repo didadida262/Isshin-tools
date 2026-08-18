@@ -18,6 +18,8 @@ import {
 import { revealItemInDir } from '@tauri-apps/plugin-opener'
 import { ErrorState } from '@/components/ErrorState'
 import { useToast } from '@/components/Toast'
+import { useToolVisible } from '@/shell/ToolVisibility'
+import { TASK_IDS, upsertTask } from '@/tasks'
 import { cachePreview, downloadAweme, unlikeAweme } from '../api/douyinApi'
 import { useBatchDownload } from '../hooks/useBatchDownload'
 import { useBatchUnlike } from '../hooks/useBatchUnlike'
@@ -72,6 +74,7 @@ export function AwemePanel({
   onBatchActiveChange,
 }: AwemePanelProps) {
   const { toast } = useToast()
+  const toolVisible = useToolVisible()
   const [selected, setSelected] = useState<DouyinAweme | null>(null)
   const [downloadingId, setDownloadingId] = useState<string | null>(null)
   const [unlikingId, setUnlikingId] = useState<string | null>(null)
@@ -186,13 +189,23 @@ export function AwemePanel({
 
   const handleDownload = async (item: DouyinAweme) => {
     if (downloadedById.has(item.awemeId) || downloadingId || anyBatchActive) return
+    const taskId = TASK_IDS.douyinSingle(item.awemeId)
+    const title = item.desc || item.awemeId
     setDownloadingId(item.awemeId)
+    upsertTask({
+      id: taskId,
+      source: 'douyin',
+      sourceLabel: '抖音下载器',
+      title: '下载视频',
+      detail: title,
+      status: 'running',
+    })
     try {
       const result = await downloadAweme({
         cookie,
         awemeId: item.awemeId,
         playUrl: item.playUrl,
-        title: item.desc || item.awemeId,
+        title,
         kind,
       })
       setLastPath(result.path)
@@ -200,12 +213,29 @@ export function AwemePanel({
         awemeId: item.awemeId,
         kind: kindFolder(kind),
         path: result.path,
-        title: item.desc || item.awemeId,
+        title,
         downloadedAt: Math.floor(Date.now() / 1000),
+      })
+      upsertTask({
+        id: taskId,
+        source: 'douyin',
+        sourceLabel: '抖音下载器',
+        title: '下载视频',
+        detail: `已保存：${title}`,
+        status: 'success',
       })
       toast(`已下载到 downloads/抖音/${kindFolder(kind)}`, 'success')
     } catch (e) {
-      toast(e instanceof Error ? e.message : String(e), 'danger')
+      const message = e instanceof Error ? e.message : String(e)
+      upsertTask({
+        id: taskId,
+        source: 'douyin',
+        sourceLabel: '抖音下载器',
+        title: '下载视频',
+        detail: message,
+        status: 'error',
+      })
+      toast(message, 'danger')
     } finally {
       setDownloadingId(null)
     }
@@ -686,6 +716,7 @@ export function AwemePanel({
       </section>
 
       {typeof document !== 'undefined' &&
+        toolVisible &&
         createPortal(
           <AnimatePresence>
             {selected && (

@@ -1,4 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import {
+  dismissTask,
+  registerCancelHandler,
+  TASK_IDS,
+  taskStatusFromBatch,
+  upsertTask,
+} from '@/tasks'
 import { downloadAweme } from '../api/douyinApi'
 import type { LoadMoreOutcome } from './useAwemeList'
 import type {
@@ -142,6 +149,8 @@ export function useBatchDownload({
     setStatusText(null)
     setStopMessage(null)
     setStopReason(null)
+    dismissTask(TASK_IDS.douyinBatch)
+    registerCancelHandler(TASK_IDS.douyinBatch, null)
   }, [kind, cookie, clearAutoRetry])
 
   useEffect(() => () => clearAutoRetry(), [clearAutoRetry])
@@ -162,6 +171,35 @@ export function useBatchDownload({
     setPhase('stopping')
     setStatusText('正在停止…')
   }, [clearAutoRetry, phase])
+
+  useEffect(() => {
+    if (phase === 'idle' && !stopMessage) {
+      dismissTask(TASK_IDS.douyinBatch)
+      registerCancelHandler(TASK_IDS.douyinBatch, null)
+      return
+    }
+
+    const kindLabel = kind === 'favorite' ? '喜欢' : '作品'
+    upsertTask({
+      id: TASK_IDS.douyinBatch,
+      source: 'douyin',
+      sourceLabel: '抖音下载器',
+      title: `批量下载${kindLabel}`,
+      detail: statusText ?? stopMessage ?? '准备中…',
+      status: taskStatusFromBatch(phase, stopReason),
+      successCount,
+    })
+    registerCancelHandler(TASK_IDS.douyinBatch, isActive ? stop : null)
+  }, [
+    phase,
+    statusText,
+    stopMessage,
+    stopReason,
+    successCount,
+    kind,
+    isActive,
+    stop,
+  ])
 
   const clearStopBanner = useCallback(() => {
     clearAutoRetry()

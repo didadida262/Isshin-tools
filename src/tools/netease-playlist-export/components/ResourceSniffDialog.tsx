@@ -11,19 +11,18 @@ import {
 } from '@fortawesome/free-solid-svg-icons'
 import { revealItemInDir } from '@tauri-apps/plugin-opener'
 import { useToast } from '@/components/Toast'
+import { useToolVisible } from '@/shell/ToolVisibility'
+import { TASK_IDS, upsertTask } from '@/tasks'
 import {
   downloadBilibili,
   searchBilibili,
   type BiliDownloadedEntry,
   type BiliSearchItem,
 } from '../api/bilibiliSniff'
+import type { SniffAutoOutcome } from '../lib/autoSniffDownload'
 import type { NeteasePlaylist, NeteaseTrack } from '../types'
 
-export type SniffAutoOutcome =
-  | { status: 'downloaded'; entry: BiliDownloadedEntry }
-  | { status: 'empty' }
-  | { status: 'error'; message: string }
-  | { status: 'aborted' }
+export type { SniffAutoOutcome } from '../lib/autoSniffDownload'
 
 interface ResourceSniffDialogProps {
   open: boolean
@@ -66,6 +65,7 @@ export function ResourceSniffDialog({
   onAutoFinished,
 }: ResourceSniffDialogProps) {
   const { toast } = useToast()
+  const toolVisible = useToolVisible()
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [items, setItems] = useState<BiliSearchItem[]>([])
@@ -112,22 +112,81 @@ export function ResourceSniffDialog({
     setAutoTargetBvid(null)
     const keyword = [track.name, track.artists].filter(Boolean).join(' ')
     const durationMs = track.durationMs || undefined
+
+    const sleepSec = (sec: number) =>
+      new Promise<void>((resolve) => {
+        window.setTimeout(resolve, sec * 1000)
+      })
+
+    // 空结果 / 限流时多等一会再搜；过一会儿往往就恢复了
+    const EMPTY_RETRY_MAX = 3
+    const EMPTY_WAIT_MIN = 8
+    const EMPTY_WAIT_MAX = 20
+
     void (async () => {
-      try {
-        const result = await searchBilibili(keyword, durationMs)
-        if (cancelled || gen !== searchGenRef.current) return
-        setItems(result)
-        setReadySearchGen(gen)
-      } catch (e) {
-        if (cancelled || gen !== searchGenRef.current) return
-        const message = e instanceof Error ? e.message : String(e)
-        setError(message)
-        setReadySearchGen(gen)
-        if (autoDownloadFirst) {
-          onAutoFinishedRef.current?.({ status: 'error', message })
+      let attempt = 0
+      while (!cancelled && gen === searchGenRef.current) {
+        attempt += 1
+        try {
+          if (autoDownloadFirst) {
+            setAutoStatus(
+              attempt === 1
+                ? '正在 B 站搜索…'
+                : `正在重试搜索（第 ${attempt}/${EMPTY_RETRY_MAX} 次）…`,
+            )
+          }
+          setLoading(true)
+          const result = await searchBilibili(keyword, durationMs)
+          if (cancelled || gen !== searchGenRef.current) return
+
+          if (
+            autoDownloadFirst &&
+            result.length === 0 &&
+            attempt < EMPTY_RETRY_MAX
+          ) {
+            const waitSec = randomIntInclusive(EMPTY_WAIT_MIN, EMPTY_WAIT_MAX)
+            setLoading(false)
+            setItems([])
+            setAutoStatus(
+              `搜索结果为空，疑似短暂限流，${waitSec}s 后重试（${attempt}/${EMPTY_RETRY_MAX}）…`,
+            )
+            await sleepSec(waitSec)
+            if (cancelled || gen !== searchGenRef.current) return
+            continue
+          }
+
+          setItems(result)
+          setReadySearchGen(gen)
+          setLoading(false)
+          return
+        } catch (e) {
+          if (cancelled || gen !== searchGenRef.current) return
+          const message = e instanceof Error ? e.message : String(e)
+          const looksLikeLimit =
+            /频繁|风控|限流|412|403|429|empty|空/i.test(message) ||
+            message.includes('-412') ||
+            message.includes('412')
+
+          if (autoDownloadFirst && looksLikeLimit && attempt < EMPTY_RETRY_MAX) {
+            const waitSec = randomIntInclusive(EMPTY_WAIT_MIN, EMPTY_WAIT_MAX)
+            setLoading(false)
+            setError(null)
+            setAutoStatus(
+              `搜索异常（${message}），${waitSec}s 后重试（${attempt}/${EMPTY_RETRY_MAX}）…`,
+            )
+            await sleepSec(waitSec)
+            if (cancelled || gen !== searchGenRef.current) return
+            continue
+          }
+
+          setError(message)
+          setReadySearchGen(gen)
+          setLoading(false)
+          if (autoDownloadFirst) {
+            onAutoFinishedRef.current?.({ status: 'error', message })
+          }
+          return
         }
-      } finally {
-        if (!cancelled && gen === searchGenRef.current) setLoading(false)
       }
     })()
     return () => {
@@ -252,9 +311,18 @@ export function ResourceSniffDialog({
 
   const handleDownload = async (item: BiliSearchItem) => {
     if (!track || autoDownloadFirst) return
+    const taskId = TASK_IDS.neteaseSingle(track.songId)
+    const preferredTitle = `${track.artists || '未知'} - ${track.name}`
     setDownloadingBvid(item.bvid)
+    upsertTask({
+      id: taskId,
+      source: 'netease',
+      sourceLabel: '网易云音乐下载器',
+      title: '下载曲目',
+      detail: preferredTitle,
+      status: 'running',
+    })
     try {
-      const preferredTitle = `${track.artists || '未知'} - ${track.name}`
       const result = await downloadBilibili({
         bvid: item.bvid,
         songId: track.songId,
@@ -274,10 +342,27 @@ export function ResourceSniffDialog({
         artists: track.artists || null,
         downloadedAt: Math.floor(Date.now() / 1000),
       })
+      upsertTask({
+        id: taskId,
+        source: 'netease',
+        sourceLabel: '网易云音乐下载器',
+        title: '下载曲目',
+        detail: `已保存：${preferredTitle}`,
+        status: 'success',
+      })
       const folder = playlist?.name ? `downloads/网易云音乐/${playlist.name}` : 'downloads/网易云音乐'
       toast(`已下载到 ${folder}`, 'success')
     } catch (e) {
-      toast(e instanceof Error ? e.message : String(e), 'danger')
+      const message = e instanceof Error ? e.message : String(e)
+      upsertTask({
+        id: taskId,
+        source: 'netease',
+        sourceLabel: '网易云音乐下载器',
+        title: '下载曲目',
+        detail: message,
+        status: 'error',
+      })
+      toast(message, 'danger')
     } finally {
       setDownloadingBvid(null)
     }
@@ -293,7 +378,7 @@ export function ResourceSniffDialog({
 
   const openPath = lastPath ?? downloadedEntry?.path ?? null
 
-  if (typeof document === 'undefined') return null
+  if (typeof document === 'undefined' || !toolVisible) return null
 
   return createPortal(
     <AnimatePresence>

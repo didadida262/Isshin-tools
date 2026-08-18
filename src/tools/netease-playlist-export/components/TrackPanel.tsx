@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
 import {
   faFileExport,
@@ -17,14 +17,21 @@ import gsap from 'gsap'
 import { ErrorState } from '@/components/ErrorState'
 import { TrackListSkeleton } from '@/components/Skeleton'
 import { useToast } from '@/components/Toast'
+import {
+  dismissTask,
+  registerCancelHandler,
+  TASK_IDS,
+  upsertTask,
+} from '@/tasks'
 import { buildExportRows } from '../export/exportMetadata'
 import { exportPlaylistFile, revealExport } from '../export/saveExport'
 import { useDownloadedTracks } from '../hooks/useDownloadedTracks'
-import type { ExportFormat, NeteasePlaylist, NeteaseTrack } from '../types'
 import {
-  ResourceSniffDialog,
+  runAutoSniffDownload,
   type SniffAutoOutcome,
-} from './ResourceSniffDialog'
+} from '../lib/autoSniffDownload'
+import type { ExportFormat, NeteasePlaylist, NeteaseTrack } from '../types'
+import { ResourceSniffDialog } from './ResourceSniffDialog'
 
 interface TrackPanelProps {
   playlist: NeteasePlaylist | null
@@ -77,7 +84,6 @@ export function TrackPanel({
   const scrollRef = useRef<HTMLDivElement>(null)
   const rowRefs = useRef(new Map<number, HTMLTableRowElement>())
   const cancelBatchRef = useRef(false)
-  const autoResolverRef = useRef<((outcome: SniffAutoOutcome) => void) | null>(null)
   const { bySongId, markDownloaded } = useDownloadedTracks()
   const bySongIdRef = useRef(bySongId)
   bySongIdRef.current = bySongId
@@ -131,14 +137,48 @@ export function TrackPanel({
 
   useEffect(() => {
     cancelBatchRef.current = true
-    autoResolverRef.current?.({ status: 'aborted' })
-    autoResolverRef.current = null
     setBatchActive(false)
     setBatchStopping(false)
     setBatchSongId(null)
     setBatchStatus(null)
     setSniffTrack(null)
+    dismissTask(TASK_IDS.neteaseBatch)
+    registerCancelHandler(TASK_IDS.neteaseBatch, null)
   }, [playlist?.id])
+
+  useEffect(() => {
+    if (!batchActive && !batchStatus) {
+      dismissTask(TASK_IDS.neteaseBatch)
+      registerCancelHandler(TASK_IDS.neteaseBatch, null)
+      return
+    }
+
+    const status = batchActive
+      ? batchStopping
+        ? 'stopping'
+        : 'running'
+      : batchStatus?.includes('失败') || batchStatus?.includes('异常')
+        ? 'error'
+        : batchStatus?.includes('停止')
+          ? 'cancelled'
+          : 'success'
+
+    upsertTask({
+      id: TASK_IDS.neteaseBatch,
+      source: 'netease',
+      sourceLabel: '网易云音乐下载器',
+      title: playlist ? `批量嗅探 · ${playlist.name}` : '批量嗅探下载',
+      detail: batchStatus ?? '准备中…',
+      status,
+      successCount: batchSuccess,
+    })
+  }, [
+    batchActive,
+    batchStopping,
+    batchStatus,
+    batchSuccess,
+    playlist,
+  ])
 
   const handleExport = async (format: ExportFormat) => {
     if (!playlist || batchActive) return
@@ -165,19 +205,16 @@ export function TrackPanel({
     }
   }
 
-  const waitAutoStep = () =>
-    new Promise<SniffAutoOutcome>((resolve) => {
-      autoResolverRef.current = resolve
-    })
-
-  const stopBatch = () => {
+  const stopBatch = useCallback(() => {
     if (!batchActive) return
     cancelBatchRef.current = true
     setBatchStopping(true)
     setBatchStatus('正在停止…')
-    autoResolverRef.current?.({ status: 'aborted' })
-    autoResolverRef.current = null
-  }
+  }, [batchActive])
+
+  useEffect(() => {
+    registerCancelHandler(TASK_IDS.neteaseBatch, batchActive ? stopBatch : null)
+  }, [batchActive, stopBatch])
 
   const startBatch = async () => {
     if (!playlist || batchActive) return
@@ -202,10 +239,12 @@ export function TrackPanel({
         setBatchSongId(track.songId)
         setBatchStatus(`嗅探中：${track.name}`)
 
-        const outcomePromise = waitAutoStep()
-        setSniffTrack(track)
-
-        const outcome = await outcomePromise
+        const outcome: SniffAutoOutcome = await runAutoSniffDownload({
+          track,
+          playlist,
+          isCancelled: () => cancelBatchRef.current,
+          onStatus: setBatchStatus,
+        })
         if (cancelBatchRef.current || outcome.status === 'aborted') break
 
         if (outcome.status === 'downloaded') {
@@ -224,18 +263,14 @@ export function TrackPanel({
           setBatchActive(false)
           setBatchStopping(false)
           setBatchSongId(null)
-          setSniffTrack(null)
-          setBatchStatus(null)
+          setBatchStatus(`批量下载已停止：${outcome.message}`)
           toast(`批量下载已停止：${outcome.message}`, 'danger')
           return
         }
 
-        setSniffTrack(null)
-        // 关弹框后稍等再开下一条，避免 UI 闪断
         await sleep(350, () => cancelBatchRef.current)
       }
 
-      setSniffTrack(null)
       setBatchSongId(null)
       setBatchActive(false)
       setBatchStopping(false)
@@ -256,7 +291,6 @@ export function TrackPanel({
         )
       }
     } catch (e) {
-      setSniffTrack(null)
       setBatchSongId(null)
       setBatchActive(false)
       setBatchStopping(false)
@@ -509,16 +543,8 @@ export function TrackPanel({
         track={sniffTrack}
         playlist={playlist}
         downloadedEntry={sniffTrack ? bySongId.get(sniffTrack.songId) ?? null : null}
-        autoDownloadFirst={batchActive}
-        onClose={() => {
-          if (batchActive) return
-          setSniffTrack(null)
-        }}
+        onClose={() => setSniffTrack(null)}
         onDownloaded={markDownloaded}
-        onAutoFinished={(outcome) => {
-          autoResolverRef.current?.(outcome)
-          autoResolverRef.current = null
-        }}
       />
     </section>
   )
