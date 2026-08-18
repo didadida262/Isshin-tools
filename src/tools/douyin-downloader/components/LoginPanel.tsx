@@ -10,13 +10,54 @@ import {
 import type { AuthStatus, DouyinProfile, DouyinQrSession } from '../types'
 
 const COOKIE_FIELDS = [
-  { key: 'sessionid', label: 'sessionid', required: true },
-  { key: 'sessionid_ss', label: 'sessionid_ss', required: false },
-  { key: 'ttwid', label: 'ttwid', required: false },
-  { key: 'msToken', label: 'msToken', required: false },
+  { key: 'sessionid', label: 'sessionid', required: true, recommended: false },
+  { key: 'sessionid_ss', label: 'sessionid_ss', required: false, recommended: false },
+  { key: 'ttwid', label: 'ttwid', required: false, recommended: false },
+  { key: 'msToken', label: 'msToken', required: false, recommended: false },
+  { key: 'UIFID', label: 'UIFID', required: false, recommended: true },
+  { key: 's_v_web_id', label: 's_v_web_id', required: false, recommended: false },
 ] as const
 
 type CookieFieldKey = (typeof COOKIE_FIELDS)[number]['key']
+
+function emptyCookieValues(): Record<CookieFieldKey, string> {
+  return Object.fromEntries(COOKIE_FIELDS.map((f) => [f.key, ''])) as Record<
+    CookieFieldKey,
+    string
+  >
+}
+
+function looksLikeFullCookie(text: string) {
+  return text.includes(';') && /sessionid\s*=/i.test(text)
+}
+
+function parseCookieString(raw: string): Partial<Record<CookieFieldKey, string>> {
+  const out: Partial<Record<CookieFieldKey, string>> = {}
+  for (const part of raw.split(';')) {
+    const idx = part.indexOf('=')
+    if (idx < 0) continue
+    const name = part.slice(0, idx).trim()
+    const value = part.slice(idx + 1).trim()
+    const field = COOKIE_FIELDS.find((f) => f.key.toLowerCase() === name.toLowerCase())
+    if (field && value) out[field.key] = value
+  }
+  return out
+}
+
+function upsertCookiePair(raw: string, key: string, value: string) {
+  const parts = raw
+    .split(';')
+    .map((p) => p.trim())
+    .filter(Boolean)
+  const idx = parts.findIndex((p) => p.split('=')[0]?.trim().toLowerCase() === key.toLowerCase())
+  if (idx >= 0) {
+    if (value.trim()) parts[idx] = `${key}=${value.trim()}`
+    else parts.splice(idx, 1)
+  } else if (value.trim()) {
+    parts.push(`${key}=${value.trim()}`)
+  }
+  return parts.join('; ')
+}
 
 interface LoginPanelProps {
   status: AuthStatus
@@ -47,15 +88,24 @@ export function LoginPanel({
   onLogout,
 }: LoginPanelProps) {
   const [mode, setMode] = useState<'qr' | 'cookie'>('cookie')
-  const [values, setValues] = useState<Record<CookieFieldKey, string>>({
-    sessionid: '',
-    sessionid_ss: '',
-    ttwid: '',
-    msToken: '',
-  })
+  const [values, setValues] = useState<Record<CookieFieldKey, string>>(emptyCookieValues)
+  const [rawCookie, setRawCookie] = useState<string | null>(null)
   const busy = status === 'logging-in'
   const cookieReady = values.sessionid.trim().length > 0
-  const cookieString = useMemo(() => buildCookie(values), [values])
+  const cookieString = useMemo(
+    () => rawCookie?.trim() || buildCookie(values),
+    [rawCookie, values],
+  )
+
+  const applyField = (key: CookieFieldKey, raw: string) => {
+    if (looksLikeFullCookie(raw)) {
+      setRawCookie(raw.trim())
+      setValues({ ...emptyCookieValues(), ...parseCookieString(raw) })
+      return
+    }
+    setValues((prev) => ({ ...prev, [key]: raw }))
+    setRawCookie((prev) => (prev ? upsertCookiePair(prev, key, raw) : null))
+  }
 
   if (status === 'authenticated' && profile) {
     return (
@@ -117,7 +167,7 @@ export function LoginPanel({
             <p className="text-xs text-muted">
               在浏览器 Cookies 里按字段名找到对应项，把{' '}
               <span className="text-foreground">Value</span> 粘贴到下方（至少填
-              sessionid）。
+              sessionid；列表需要 UIFID）。也可把整段 Cookie 粘到任意框，会自动拆分。
             </p>
             <div className="space-y-2">
               {COOKIE_FIELDS.map((field) => (
@@ -126,16 +176,18 @@ export function LoginPanel({
                   className="flex items-center gap-2 rounded-xl border border-border bg-background px-3 py-2"
                   htmlFor={`dy-cookie-${field.key}`}
                 >
-                  <span className="w-28 shrink-0 font-mono text-[11px] text-subtle">
+                  <span className="w-32 shrink-0 font-mono text-[11px] text-subtle">
                     {field.label}
-                    {field.required ? <span className="text-danger"> *</span> : null}=
+                    {field.required ? <span className="text-danger"> *</span> : null}
+                    {field.recommended ? (
+                      <span className="ml-1 font-sans text-[10px] text-accent">建议</span>
+                    ) : null}
+                    =
                   </span>
                   <input
                     id={`dy-cookie-${field.key}`}
                     value={values[field.key]}
-                    onChange={(e) =>
-                      setValues((prev) => ({ ...prev, [field.key]: e.target.value }))
-                    }
+                    onChange={(e) => applyField(field.key, e.target.value)}
                     placeholder="粘贴 Value"
                     autoComplete="off"
                     spellCheck={false}
@@ -147,7 +199,7 @@ export function LoginPanel({
             <p className="text-[11px] leading-relaxed text-subtle">
               浏览器登录{' '}
               <code className="text-muted">www.douyin.com</code> → F12 → Application → Cookies →
-              点开各字段复制 Value。
+              点开各字段复制 Value。缺少 UIFID 时列表会被 Argus 拦截（403）。
             </p>
             <button
               type="button"

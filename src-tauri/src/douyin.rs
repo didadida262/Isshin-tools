@@ -138,6 +138,40 @@ fn normalize_cookie(raw: &str) -> Result<String, String> {
     Ok(cookie)
 }
 
+fn cookie_value(cookie: &str, name: &str) -> Option<String> {
+    cookie.split(';').find_map(|part| {
+        let part = part.trim();
+        let (k, v) = part.split_once('=')?;
+        if !k.trim().eq_ignore_ascii_case(name) {
+            return None;
+        }
+        let v = v.trim();
+        if v.is_empty() {
+            None
+        } else {
+            Some(v.to_string())
+        }
+    })
+}
+
+/// Argus 会校验 uifid / fp；从 Cookie 回填到 query，再参与 a_bogus 签名。
+fn inject_web_security_params(params: &mut serde_json::Map<String, Value>, cookie: &str) {
+    if !params.contains_key("uifid") {
+        if let Some(v) = cookie_value(cookie, "UIFID") {
+            params.insert("uifid".into(), json!(v));
+        }
+    }
+    if let Some(fp) = cookie_value(cookie, "s_v_web_id") {
+        params.entry("verifyFp".into()).or_insert_with(|| json!(fp.clone()));
+        params.entry("fp".into()).or_insert_with(|| json!(fp));
+    }
+    if !params.contains_key("msToken") {
+        if let Some(v) = cookie_value(cookie, "msToken") {
+            params.insert("msToken".into(), json!(v));
+        }
+    }
+}
+
 fn header_map(cookie: &str) -> Result<HeaderMap, String> {
     let mut headers = HeaderMap::new();
     headers.insert(USER_AGENT, HeaderValue::from_static(USER_AGENT_VALUE));
@@ -247,6 +281,7 @@ fn urlencoding_encode(s: &str) -> String {
 }
 
 async fn signed_get(cookie: &str, path: &str, mut params: serde_json::Map<String, Value>) -> Result<Value, String> {
+    inject_web_security_params(&mut params, cookie);
     let bogus = sign_a_bogus(&Value::Object(params.clone()))?;
     params.insert("a_bogus".into(), json!(bogus));
     let url = format!("https://www.douyin.com{path}?{}", build_query(&params));
@@ -279,6 +314,7 @@ async fn signed_post(
     mut query: serde_json::Map<String, Value>,
     form: &[(String, String)],
 ) -> Result<Value, String> {
+    inject_web_security_params(&mut query, cookie);
     let bogus = sign_a_bogus(&Value::Object(query.clone()))?;
     query.insert("a_bogus".into(), json!(bogus));
     let url = format!("https://www.douyin.com{path}?{}", build_query(&query));
