@@ -28,6 +28,8 @@ interface ResourceSniffDialogProps {
   open: boolean
   track: NeteaseTrack | null
   playlist: NeteasePlaylist | null
+  playlistIndex?: number
+  playlistTotal?: number
   downloadedEntry?: BiliDownloadedEntry | null
   /** 批量模式：搜索结果展示后，随机等待 1–3 秒再下载第一条 */
   autoDownloadFirst?: boolean
@@ -58,6 +60,8 @@ export function ResourceSniffDialog({
   open,
   track,
   playlist,
+  playlistIndex,
+  playlistTotal,
   downloadedEntry = null,
   autoDownloadFirst = false,
   onClose,
@@ -315,6 +319,8 @@ export function ResourceSniffDialog({
             playlistName: playlist?.name,
             preferredTitle,
             artists: currentTrack.artists,
+            playlistIndex,
+            playlistTotal,
           })
           if (cancelled || startedGen !== searchGenRef.current) {
             onAutoFinishedRef.current?.({ status: 'aborted' })
@@ -367,6 +373,8 @@ export function ResourceSniffDialog({
     error,
     items,
     playlist,
+    playlistIndex,
+    playlistTotal,
     readySearchGen,
   ])
 
@@ -391,6 +399,8 @@ export function ResourceSniffDialog({
         playlistName: playlist?.name,
         preferredTitle,
         artists: track.artists,
+        playlistIndex,
+        playlistTotal,
       })
       setLastPath(result.path)
       onDownloaded?.({

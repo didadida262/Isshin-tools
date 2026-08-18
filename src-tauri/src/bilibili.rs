@@ -272,6 +272,42 @@ fn sanitize_filename(name: &str) -> String {
     }
 }
 
+fn seq_width(total: usize) -> usize {
+    total.max(1).to_string().len().max(4)
+}
+
+fn format_seq(index: u32, total: usize) -> String {
+    format!("{:0width$}", index, width = seq_width(total))
+}
+
+fn media_filename(seq: Option<u32>, total: Option<u32>, song_id: u64, stem: &str, bvid: &str) -> String {
+    match seq.filter(|i| *i > 0) {
+        Some(i) => {
+            let width_total = total.unwrap_or(i) as usize;
+            format!(
+                "{}_{song_id}_{stem}-{bvid}.mp4",
+                format_seq(i, width_total)
+            )
+        }
+        None => format!("{song_id}_{stem}-{bvid}.mp4"),
+    }
+}
+
+fn strip_seq_and_song_id_prefix(name: &str, song_id: u64) -> String {
+    let song_mid = format!("_{song_id}_");
+    if let Some(pos) = name.find(&song_mid) {
+        let head = &name[..pos];
+        if !head.is_empty() && head.chars().all(|c| c.is_ascii_digit()) {
+            return name[pos + song_mid.len()..].to_string();
+        }
+    }
+    let song_prefix = format!("{song_id}_");
+    if let Some(rest) = name.strip_prefix(&song_prefix) {
+        return rest.to_string();
+    }
+    name.to_string()
+}
+
 fn resolve_download_root(app: &AppHandle) -> Result<PathBuf, String> {
     let from_manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .parent()
@@ -676,6 +712,8 @@ pub async fn bilibili_download(
     playlist_name: Option<String>,
     preferred_title: Option<String>,
     artists: Option<String>,
+    playlist_index: Option<u32>,
+    playlist_total: Option<u32>,
 ) -> Result<BiliDownloadResult, String> {
     let bvid = bvid.trim().to_string();
     if bvid.is_empty() {
@@ -738,7 +776,13 @@ pub async fn bilibili_download(
             .filter(|s| !s.trim().is_empty())
             .unwrap_or(&title),
     );
-    let output = out_dir.join(format!("{song_id}_{stem}-{bvid}.mp4"));
+    let output = out_dir.join(media_filename(
+        playlist_index,
+        playlist_total,
+        song_id,
+        &stem,
+        &bvid,
+    ));
 
     if let Some(dash) = play.pointer("/data/dash") {
         let videos = dash
@@ -817,4 +861,80 @@ pub async fn bilibili_download(
         title,
         song_id,
     })
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BiliApplySeqResult {
+    pub renamed: u32,
+    pub skipped: u32,
+}
+
+#[tauri::command]
+pub async fn bilibili_apply_track_seq(
+    app: AppHandle,
+    playlist_id: u64,
+    song_ids: Vec<u64>,
+) -> Result<BiliApplySeqResult, String> {
+    if playlist_id == 0 {
+        return Err("playlistId 无效".into());
+    }
+    if song_ids.is_empty() {
+        return Ok(BiliApplySeqResult {
+            renamed: 0,
+            skipped: 0,
+        });
+    }
+
+    let root = resolve_download_root(&app)?;
+    let _guard = index_lock().lock().await;
+    let mut index = load_index(&root).await?;
+    let total = song_ids.len();
+    let mut seq_of: std::collections::HashMap<u64, u32> = std::collections::HashMap::new();
+    for (i, id) in song_ids.iter().copied().enumerate() {
+        seq_of.insert(id, (i + 1) as u32);
+    }
+
+    let mut renamed = 0u32;
+    let mut skipped = 0u32;
+    let keys: Vec<String> = index.entries.keys().cloned().collect();
+    for key in keys {
+        let Some(mut entry) = index.entries.get(&key).cloned() else {
+            continue;
+        };
+        if entry.playlist_id != Some(playlist_id) {
+            continue;
+        }
+        let Some(seq) = seq_of.get(&entry.song_id).copied() else {
+            skipped += 1;
+            continue;
+        };
+        let src = PathBuf::from(&entry.path);
+        if !src.is_file() {
+            skipped += 1;
+            continue;
+        }
+        let Some(fname) = src.file_name().map(|n| n.to_string_lossy().into_owned()) else {
+            skipped += 1;
+            continue;
+        };
+        let rest = strip_seq_and_song_id_prefix(&fname, entry.song_id);
+        let new_name = format!("{}_{}_{rest}", format_seq(seq, total), entry.song_id);
+        let dest = src.with_file_name(new_name);
+        if dest == src {
+            continue;
+        }
+        if dest.exists() && dest != src {
+            skipped += 1;
+            continue;
+        }
+        std::fs::rename(&src, &dest).map_err(|e| format!("重命名失败: {e}"))?;
+        entry.path = dest.to_string_lossy().to_string();
+        index.entries.insert(key, entry);
+        renamed += 1;
+    }
+    if renamed > 0 {
+        save_index(&root, &index).await?;
+    }
+    Ok(BiliApplySeqResult { renamed, skipped })
 }

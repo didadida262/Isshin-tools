@@ -63,6 +63,8 @@ export async function downloadBilibiliVideo(params: {
     playlistName: 'B站',
     preferredTitle: params.title,
     artists: params.author,
+    playlistIndex: null,
+    playlistTotal: null,
   })
 }
 

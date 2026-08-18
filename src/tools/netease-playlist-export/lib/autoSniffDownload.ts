@@ -42,10 +42,12 @@ const EMPTY_WAIT_MAX = 20
 export async function runAutoSniffDownload(opts: {
   track: NeteaseTrack
   playlist: NeteasePlaylist | null
+  playlistIndex?: number
+  playlistTotal?: number
   isCancelled: () => boolean
   onStatus?: (text: string) => void
 }): Promise<SniffAutoOutcome> {
-  const { track, playlist, isCancelled, onStatus } = opts
+  const { track, playlist, playlistIndex, playlistTotal, isCancelled, onStatus } = opts
   const keyword = [track.name, track.artists].filter(Boolean).join(' ')
   const durationMs = track.durationMs || undefined
   const preferredTitle = `${track.artists || '未知'} - ${track.name}`
@@ -121,6 +123,8 @@ export async function runAutoSniffDownload(opts: {
         playlistName: playlist?.name,
         preferredTitle,
         artists: track.artists,
+        playlistIndex,
+        playlistTotal,
       })
       if (isCancelled()) return { status: 'aborted' }
 

@@ -37,6 +37,8 @@ export interface BiliDownloadRequest {
   playlistName?: string
   preferredTitle?: string
   artists?: string
+  playlistIndex?: number
+  playlistTotal?: number
 }
 
 export interface BiliSearchPage {
@@ -67,9 +69,18 @@ export async function downloadBilibili(
     playlistName: req.playlistName ?? null,
     preferredTitle: req.preferredTitle ?? null,
     artists: req.artists ?? null,
+    playlistIndex: req.playlistIndex ?? null,
+    playlistTotal: req.playlistTotal ?? null,
   })
 }
 
 export async function listDownloadedBilibili(): Promise<BiliDownloadedEntry[]> {
   return invoke<BiliDownloadedEntry[]>('bilibili_list_downloaded')
+}
+
+export async function applyPlaylistTrackSeq(
+  playlistId: number,
+  songIds: number[],
+): Promise<{ renamed: number; skipped: number }> {
+  return invoke('bilibili_apply_track_seq', { playlistId, songIds })
 }

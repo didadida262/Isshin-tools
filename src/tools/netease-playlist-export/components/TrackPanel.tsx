@@ -28,6 +28,11 @@ import { buildExportRows } from '../export/exportMetadata'
 import { exportPlaylistFile, revealExport } from '../export/saveExport'
 import { useDownloadedTracks } from '../hooks/useDownloadedTracks'
 import {
+  displayTracks,
+  seqMapBySongId,
+} from '../lib/playlistOrder'
+import { applyPlaylistTrackSeq } from '../api/bilibiliSniff'
+import {
   runAutoSniffDownload,
   type SniffAutoOutcome,
 } from '../lib/autoSniffDownload'
@@ -85,43 +90,52 @@ export function TrackPanel({
   const scrollRef = useRef<HTMLDivElement>(null)
   const rowRefs = useRef(new Map<number, HTMLTableRowElement>())
   const cancelBatchRef = useRef(false)
-  const { bySongId, markDownloaded } = useDownloadedTracks()
+  const { bySongId, markDownloaded, reload } = useDownloadedTracks()
   const bySongIdRef = useRef(bySongId)
   bySongIdRef.current = bySongId
+  const appliedSeqKey = useRef('')
+
+  const orderedTracks = useMemo(
+    () => displayTracks(playlist, tracks),
+    [playlist, tracks],
+  )
+  const seqBySongId = useMemo(
+    () => seqMapBySongId(orderedTracks),
+    [orderedTracks],
+  )
 
   const filterQuery = useDebouncedValue(filter, filter.trim() ? 200 : 0)
   const filtered = useMemo(() => {
     const q = filterQuery.trim().toLowerCase()
-    if (!q) return tracks
-    return tracks.filter(
+    if (!q) return orderedTracks
+    return orderedTracks.filter(
       (t) =>
         t.name.toLowerCase().includes(q) ||
         t.artists.toLowerCase().includes(q) ||
         t.album.toLowerCase().includes(q),
     )
-  }, [tracks, filterQuery])
+  }, [orderedTracks, filterQuery])
 
   const downloadedCount = useMemo(() => {
     let n = 0
-    for (const t of tracks) {
+    for (const t of orderedTracks) {
       if (bySongId.has(t.songId)) n += 1
     }
     return n
-  }, [tracks, bySongId])
+  }, [orderedTracks, bySongId])
 
   const pendingCount = useMemo(() => {
     let n = 0
-    for (const t of tracks) {
+    for (const t of orderedTracks) {
       if (!bySongId.has(t.songId)) n += 1
     }
     return n
-  }, [tracks, bySongId])
+  }, [orderedTracks, bySongId])
 
   const batchIndex = useMemo(() => {
     if (batchSongId == null) return null
-    const i = tracks.findIndex((t) => t.songId === batchSongId)
-    return i >= 0 ? i + 1 : null
-  }, [batchSongId, tracks])
+    return seqBySongId.get(batchSongId) ?? null
+  }, [batchSongId, seqBySongId])
 
   useEffect(() => {
     if (batchSongId == null) return
@@ -150,6 +164,7 @@ export function TrackPanel({
     setBatchSongId(null)
     setBatchStatus(null)
     setSniffTrack(null)
+    appliedSeqKey.current = ''
     dismissTask(TASK_IDS.neteaseBatch)
     registerCancelHandler(TASK_IDS.neteaseBatch, null)
   }, [playlist?.id])
@@ -171,7 +186,7 @@ export function TrackPanel({
           ? 'cancelled'
           : 'success'
 
-    const found = batchSongId == null ? -1 : tracks.findIndex((t) => t.songId === batchSongId)
+    const found = batchSongId == null ? undefined : seqBySongId.get(batchSongId)
     upsertTask({
       id: TASK_IDS.neteaseBatch,
       source: 'netease',
@@ -180,8 +195,8 @@ export function TrackPanel({
       detail: batchStatus ?? '准备中…',
       status,
       successCount: batchSuccess,
-      itemIndex: found >= 0 ? found + 1 : undefined,
-      itemTotal: tracks.length > 0 ? tracks.length : undefined,
+      itemIndex: found,
+      itemTotal: orderedTracks.length > 0 ? orderedTracks.length : undefined,
     })
   }, [
     batchActive,
@@ -190,14 +205,15 @@ export function TrackPanel({
     batchSuccess,
     batchSongId,
     playlist,
-    tracks,
+    orderedTracks,
+    seqBySongId,
   ])
 
   const handleExport = async (format: ExportFormat) => {
     if (!playlist || batchActive) return
     setExporting(format)
     try {
-      const rows = buildExportRows(playlist, tracks)
+      const rows = buildExportRows(playlist, orderedTracks)
       const result = await exportPlaylistFile(rows, playlist.name, format)
       setLastPath(result.path)
       toast(`已导出 ${format.toUpperCase()} · ${rows.length} 首`, 'success')
@@ -229,6 +245,36 @@ export function TrackPanel({
     registerCancelHandler(TASK_IDS.neteaseBatch, batchActive ? stopBatch : null)
   }, [batchActive, stopBatch])
 
+  useEffect(() => {
+    if (!playlist || loading || error || batchActive || orderedTracks.length === 0) return
+    const key = `${playlist.id}:${orderedTracks.length}:${orderedTracks[0]?.songId}:${orderedTracks[orderedTracks.length - 1]?.songId}`
+    if (appliedSeqKey.current === key) return
+    appliedSeqKey.current = key
+    void applyPlaylistTrackSeq(
+      playlist.id,
+      orderedTracks.map((t) => t.songId),
+    )
+      .then((result) => {
+        if (result.renamed > 0) {
+          toast(`已按列表序号重命名 ${result.renamed} 个文件`, 'success')
+          void reload()
+        }
+      })
+      .catch((e) => {
+        appliedSeqKey.current = ''
+        const message = e instanceof Error ? e.message : String(e)
+        toast(`按序号重命名失败：${message}`, 'danger')
+      })
+  }, [
+    playlist,
+    loading,
+    error,
+    batchActive,
+    orderedTracks,
+    reload,
+    toast,
+  ])
+
   const startBatch = async () => {
     if (!playlist || batchActive) return
     if (pendingCount === 0) {
@@ -245,7 +291,7 @@ export function TrackPanel({
     let localSuccess = 0
 
     try {
-      for (const track of tracks) {
+      for (const track of orderedTracks) {
         if (cancelBatchRef.current) break
         if (bySongIdRef.current.has(track.songId)) continue
 
@@ -255,6 +301,8 @@ export function TrackPanel({
         const outcome: SniffAutoOutcome = await runAutoSniffDownload({
           track,
           playlist,
+          playlistIndex: seqBySongId.get(track.songId),
+          playlistTotal: orderedTracks.length,
           isCancelled: () => cancelBatchRef.current,
           onStatus: setBatchStatus,
         })
@@ -443,7 +491,7 @@ export function TrackPanel({
         {playlist && !loading && !error && filtered.length > 0 && (
           <table className="w-full table-fixed text-left text-xs">
             <colgroup>
-              <col style={{ width: '2.5rem' }} />
+              <col style={{ width: '3rem' }} />
               <col style={{ width: '46%' }} />
               <col style={{ width: '18%' }} />
               <col style={{ width: '3.5rem' }} />
@@ -478,7 +526,9 @@ export function TrackPanel({
                         : 'hover:bg-surface-hover/50'
                     }`}
                   >
-                    <td className="px-3 py-2.5 tabular-nums text-subtle">{index + 1}</td>
+                    <td className="px-3 py-2.5 tabular-nums text-subtle">
+                      {seqBySongId.get(track.songId) ?? index + 1}
+                    </td>
                     <td className="min-w-0 overflow-hidden px-2 py-2.5">
                       <div className="flex min-w-0 items-start gap-1.5">
                         <div className="min-w-0 flex-1 overflow-hidden">
@@ -558,6 +608,8 @@ export function TrackPanel({
         open={sniffTrack !== null}
         track={sniffTrack}
         playlist={playlist}
+        playlistIndex={sniffTrack ? seqBySongId.get(sniffTrack.songId) : undefined}
+        playlistTotal={orderedTracks.length}
         downloadedEntry={sniffTrack ? bySongId.get(sniffTrack.songId) ?? null : null}
         onClose={() => setSniffTrack(null)}
         onDownloaded={markDownloaded}
