@@ -17,6 +17,7 @@ import gsap from 'gsap'
 import { ErrorState } from '@/components/ErrorState'
 import { TrackListSkeleton } from '@/components/Skeleton'
 import { useToast } from '@/components/Toast'
+import { useDebouncedValue } from '@/hooks/useDebouncedValue'
 import {
   dismissTask,
   registerCancelHandler,
@@ -84,12 +85,13 @@ export function TrackPanel({
   const scrollRef = useRef<HTMLDivElement>(null)
   const rowRefs = useRef(new Map<number, HTMLTableRowElement>())
   const cancelBatchRef = useRef(false)
-  const { bySongId, markDownloaded } = useDownloadedTracks()
+  const { bySongId, markDownloaded, reload } = useDownloadedTracks()
   const bySongIdRef = useRef(bySongId)
   bySongIdRef.current = bySongId
 
+  const filterQuery = useDebouncedValue(filter, filter.trim() ? 200 : 0)
   const filtered = useMemo(() => {
-    const q = filter.trim().toLowerCase()
+    const q = filterQuery.trim().toLowerCase()
     if (!q) return tracks
     return tracks.filter(
       (t) =>
@@ -97,7 +99,7 @@ export function TrackPanel({
         t.artists.toLowerCase().includes(q) ||
         t.album.toLowerCase().includes(q),
     )
-  }, [tracks, filter])
+  }, [tracks, filterQuery])
 
   const downloadedCount = useMemo(() => {
     let n = 0
@@ -222,6 +224,18 @@ export function TrackPanel({
     setBatchStopping(true)
     setBatchStatus('正在停止…')
   }, [batchActive])
+
+  const openDownloadedPath = useCallback(
+    async (path: string) => {
+      try {
+        await revealExport(path)
+      } catch {
+        toast('本地文件已不存在，已同步下载状态', 'danger')
+        void reload()
+      }
+    },
+    [reload, toast],
+  )
 
   useEffect(() => {
     registerCancelHandler(TASK_IDS.neteaseBatch, batchActive ? stopBatch : null)
@@ -534,7 +548,7 @@ export function TrackPanel({
                         {downloaded && (
                           <button
                             type="button"
-                            onClick={() => void revealExport(downloaded.path)}
+                            onClick={() => void openDownloadedPath(downloaded.path)}
                             className="inline-flex h-7 w-7 items-center justify-center rounded-lg text-muted transition-colors duration-200 hover:bg-background hover:text-foreground"
                             title="打开文件位置"
                             aria-label={`打开 ${track.name} 所在文件夹`}

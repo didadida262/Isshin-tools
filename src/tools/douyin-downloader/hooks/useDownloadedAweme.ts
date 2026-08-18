@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
+import { useResyncWhenVisible } from '@/shell/useResyncWhenVisible'
 import { listDownloaded } from '../api/douyinApi'
 import type { DouyinDownloadedEntry, DouyinListKind } from '../types'
 
@@ -25,15 +26,20 @@ export function useDownloadedAweme() {
       for (const entry of entries) {
         next.set(downloadedKey(entry.awemeId, entry.kind), entry)
       }
-      setByKey(next)
+      setByKey((prev) => {
+        if (prev.size !== next.size) return next
+        for (const [key, entry] of next) {
+          const old = prev.get(key)
+          if (!old || old.path !== entry.path) return next
+        }
+        return prev
+      })
     } catch {
-      setByKey(new Map())
+      setByKey((prev) => (prev.size === 0 ? prev : new Map()))
     }
   }, [])
 
-  useEffect(() => {
-    void reload()
-  }, [reload])
+  useResyncWhenVisible(reload)
 
   const markDownloaded = useCallback((entry: DouyinDownloadedEntry) => {
     setByKey((prev) => {
