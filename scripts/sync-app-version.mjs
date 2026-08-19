@@ -2,7 +2,7 @@
 /**
  * Sync package.json version → tauri.conf.json + Cargo.toml
  */
-import { readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -32,4 +32,19 @@ if (nextCargo !== cargo) {
   console.log(`[sync-app-version] Cargo.toml → ${version}`)
 } else {
   console.log(`[sync-app-version] Cargo.toml 已是 ${version}`)
+}
+
+const lockPath = join(root, 'src-tauri/Cargo.lock')
+if (existsSync(lockPath)) {
+  const lock = readFileSync(lockPath, 'utf8')
+  const nextLock = lock.replace(
+    /(name = "isshin-tools"\nversion = ")[^"]+(")/,
+    `$1${version}$2`,
+  )
+  if (nextLock !== lock) {
+    writeFileSync(lockPath, nextLock)
+    console.log(`[sync-app-version] Cargo.lock → ${version}`)
+  } else {
+    console.log(`[sync-app-version] Cargo.lock 已是 ${version}`)
+  }
 }

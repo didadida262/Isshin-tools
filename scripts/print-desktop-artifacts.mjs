@@ -3,12 +3,24 @@
  * Print likely Tauri bundle artifact paths after build.
  * Usage: node scripts/print-desktop-artifacts.mjs <mac|mac-intel|win>
  */
-import { existsSync, readdirSync, statSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { existsSync, readFileSync, readdirSync, renameSync, statSync } from 'node:fs'
+import { basename, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const label = process.argv[2] ?? 'desktop'
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
+const version = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')).version
+
+function dmgNameWithVersion(name, ver) {
+  if (!name.toLowerCase().endsWith('.dmg') || name.includes(ver)) return name
+  const stem = name.slice(0, -4)
+  const arch = stem.match(/_(aarch64|x86_64|x64|universal)$/i)
+  if (arch) {
+    const prefix = stem.slice(0, -arch[0].length)
+    return `${prefix}_${ver}${arch[0]}.dmg`
+  }
+  return `${stem}_${ver}.dmg`
+}
 
 const candidates = [
   join(root, 'src-tauri/target/release/bundle'),
@@ -45,7 +57,26 @@ for (const base of candidates) {
     continue
   }
   for (const f of files) {
-    console.log(`  ${f}`)
+    let printed = f
+    if (f.toLowerCase().endsWith('.dmg')) {
+      const nextName = dmgNameWithVersion(basename(f), version)
+      if (nextName !== basename(f)) {
+        const dest = join(dirname(f), nextName)
+        if (existsSync(dest)) {
+          console.log(`  ${f}`)
+          console.log(`    (未重命名：已存在 ${nextName})`)
+          printed = f
+        } else {
+          renameSync(f, dest)
+          printed = dest
+          console.log(`  ${printed}`)
+          console.log(`    (已加上版本号 ${version})`)
+        }
+        found = true
+        continue
+      }
+    }
+    console.log(`  ${printed}`)
     found = true
   }
 }
