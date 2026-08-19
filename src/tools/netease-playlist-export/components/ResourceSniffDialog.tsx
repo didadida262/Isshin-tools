@@ -21,6 +21,7 @@ import {
 } from '../api/bilibiliSniff'
 import type { SniffAutoOutcome } from '../lib/autoSniffDownload'
 import type { NeteasePlaylist, NeteaseTrack } from '../types'
+import { SniffVideoDetailDialog } from './SniffVideoDetailDialog'
 
 export type { SniffAutoOutcome } from '../lib/autoSniffDownload'
 
@@ -77,6 +78,8 @@ export function ResourceSniffDialog({
   const [hasMore, setHasMore] = useState(false)
   const [downloadingBvid, setDownloadingBvid] = useState<string | null>(null)
   const [lastPath, setLastPath] = useState<string | null>(null)
+  const [lastDownloadedBvid, setLastDownloadedBvid] = useState<string | null>(null)
+  const [selectedItem, setSelectedItem] = useState<BiliSearchItem | null>(null)
   const [autoStatus, setAutoStatus] = useState<string | null>(null)
   const [autoTargetBvid, setAutoTargetBvid] = useState<string | null>(null)
 
@@ -97,7 +100,9 @@ export function ResourceSniffDialog({
   useEffect(() => {
     if (!open) return
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && !autoDownloadFirst) onClose()
+      if (e.key !== 'Escape' || autoDownloadFirst) return
+      if (selectedItem) return
+      onClose()
     }
     window.addEventListener('keydown', onKey)
     const prev = document.body.style.overflow
@@ -106,7 +111,7 @@ export function ResourceSniffDialog({
       window.removeEventListener('keydown', onKey)
       document.body.style.overflow = prev
     }
-  }, [open, onClose, autoDownloadFirst])
+  }, [open, onClose, autoDownloadFirst, selectedItem])
 
   useEffect(() => {
     if (!open || !track) return
@@ -120,6 +125,8 @@ export function ResourceSniffDialog({
     setItems([])
     setHasMore(false)
     setLastPath(null)
+    setLastDownloadedBvid(null)
+    setSelectedItem(null)
     setReadySearchGen(0)
     pageRef.current = 1
     hasMoreRef.current = false
@@ -327,6 +334,7 @@ export function ResourceSniffDialog({
             return
           }
           setLastPath(result.path)
+          setLastDownloadedBvid(result.bvid)
           const entry: BiliDownloadedEntry = {
             songId: currentTrack.songId,
             playlistId: playlist?.id ?? null,
@@ -403,6 +411,7 @@ export function ResourceSniffDialog({
         playlistTotal,
       })
       setLastPath(result.path)
+      setLastDownloadedBvid(result.bvid)
       onDownloaded?.({
         songId: track.songId,
         playlistId: playlist?.id ?? null,
@@ -444,223 +453,262 @@ export function ResourceSniffDialog({
       abortRef.current = true
       onAutoFinishedRef.current?.({ status: 'aborted' })
     }
+    setSelectedItem(null)
     onClose()
   }
 
   const openPath = lastPath ?? downloadedEntry?.path ?? null
+  const detailOpenPath =
+    selectedItem == null
+      ? null
+      : downloadedEntry?.bvid === selectedItem.bvid
+        ? (lastDownloadedBvid === selectedItem.bvid ? lastPath : null) ??
+          downloadedEntry.path
+        : lastDownloadedBvid === selectedItem.bvid
+          ? lastPath
+          : null
+  const detailAlreadyDownloaded =
+    !!selectedItem &&
+    !!downloadedEntry &&
+    downloadedEntry.bvid === selectedItem.bvid
 
   if (typeof document === 'undefined' || !toolVisible) return null
 
   return createPortal(
-    <AnimatePresence>
-      {open && track && (
-        <motion.div
-          className="fixed inset-0 z-50 flex items-center justify-center p-4"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          transition={{ duration: 0.16 }}
-        >
-          {autoDownloadFirst ? (
-            <div className="absolute inset-0 bg-black/55" aria-hidden />
-          ) : (
-            <button
-              type="button"
-              aria-label="关闭"
-              className="absolute inset-0 bg-black/55"
-              onClick={onClose}
-            />
-          )}
+    <>
+      <AnimatePresence>
+        {open && track && (
           <motion.div
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="resource-sniff-title"
-            initial={{ opacity: 0, y: 10, scale: 0.98 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 8, scale: 0.98 }}
-            transition={{ duration: 0.18, ease: 'easeOut' }}
-            className="relative z-10 flex h-[min(88vh,720px)] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-border bg-surface shadow-xl"
+            className="fixed inset-0 z-50 flex items-center justify-center p-4"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.16 }}
           >
-            <div className="flex shrink-0 items-start justify-between gap-3 border-b border-border-subtle px-5 py-4">
-              <div className="min-w-0">
-                <h2
-                  id="resource-sniff-title"
-                  className="font-display text-base font-semibold tracking-tight text-foreground"
-                >
-                  资源嗅探
-                  {autoDownloadFirst ? (
-                    <span className="ml-2 text-xs font-normal text-muted">批量中</span>
-                  ) : null}
-                </h2>
-                <p className="mt-1 truncate text-xs text-muted">
-                  {track.name}
-                  <span className="text-subtle"> · </span>
-                  {track.artists || '未知歌手'}
-                  <span className="text-subtle"> · 源：B站 · 下载含视频+音频</span>
-                </p>
-                {autoStatus && (
-                  <p className="mt-1.5 flex items-center gap-1.5 text-[11px] text-muted">
-                    {(loading || downloadingBvid) && (
-                      <FontAwesomeIcon icon={faSpinner} className="h-2.5 w-2.5 animate-spin" />
-                    )}
-                    {autoStatus}
+            {autoDownloadFirst ? (
+              <div className="absolute inset-0 bg-black/55" aria-hidden />
+            ) : (
+              <button
+                type="button"
+                aria-label="关闭"
+                className="absolute inset-0 bg-black/55"
+                onClick={handleClose}
+              />
+            )}
+            <motion.div
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="resource-sniff-title"
+              initial={{ opacity: 0, y: 10, scale: 0.98 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 8, scale: 0.98 }}
+              transition={{ duration: 0.18, ease: 'easeOut' }}
+              className="relative z-10 flex h-[min(88vh,720px)] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-border bg-surface shadow-xl"
+            >
+              <div className="flex shrink-0 items-start justify-between gap-3 border-b border-border-subtle px-5 py-4">
+                <div className="min-w-0">
+                  <h2
+                    id="resource-sniff-title"
+                    className="font-display text-base font-semibold tracking-tight text-foreground"
+                  >
+                    资源嗅探
+                    {autoDownloadFirst ? (
+                      <span className="ml-2 text-xs font-normal text-muted">批量中</span>
+                    ) : null}
+                  </h2>
+                  <p className="mt-1 truncate text-xs text-muted">
+                    {track.name}
+                    <span className="text-subtle"> · </span>
+                    {track.artists || '未知歌手'}
+                    <span className="text-subtle"> · 源：B站 · 下载含视频+音频</span>
                   </p>
-                )}
-              </div>
-              {!autoDownloadFirst && (
-                <button
-                  type="button"
-                  onClick={handleClose}
-                  className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-subtle transition-colors hover:bg-surface-hover hover:text-foreground"
-                  aria-label="关闭弹框"
-                >
-                  <FontAwesomeIcon icon={faXmark} className="h-3.5 w-3.5" />
-                </button>
-              )}
-            </div>
-
-            <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
-              {loading && items.length === 0 && (
-                <div
-                  className="flex h-full min-h-[12rem] items-center justify-center gap-2 text-xs text-muted"
-                  role="status"
-                >
-                  <FontAwesomeIcon icon={faSpinner} className="h-3.5 w-3.5 animate-spin" />
-                  正在 B 站搜索…
-                </div>
-              )}
-              {error && !loading && items.length === 0 && (
-                <div className="flex h-full min-h-[12rem] items-center justify-center px-6" role="alert">
-                  <p className="text-center text-xs text-danger">{error}</p>
-                </div>
-              )}
-              {!loading && !error && items.length === 0 && (
-                <div className="flex h-full min-h-[12rem] items-center justify-center">
-                  <p className="text-xs text-muted">未找到相关稿件</p>
-                </div>
-              )}
-              {items.length > 0 && (
-                <ul className="space-y-2">
-                  {items.map((item) => {
-                    const delta = formatDelta(item.durationDeltaMs)
-                    const busy = downloadingBvid === item.bvid
-                    const alreadyDownloaded =
-                      !!downloadedEntry && downloadedEntry.bvid === item.bvid
-                    const isAutoTarget = autoTargetBvid === item.bvid
-                    return (
-                      <li
-                        key={item.bvid}
-                        className={`flex gap-3 rounded-xl border p-3 transition-colors duration-200 ${
-                          isAutoTarget
-                            ? 'border-foreground/25 bg-surface-hover/60'
-                            : alreadyDownloaded
-                              ? 'border-success/40 bg-success/10'
-                              : 'border-border-subtle bg-background/40'
-                        }`}
-                      >
-                        {item.cover ? (
-                          <img
-                            src={item.cover}
-                            alt=""
-                            className="h-14 w-20 shrink-0 rounded-lg object-cover"
-                            loading="lazy"
-                            referrerPolicy="no-referrer"
-                          />
-                        ) : (
-                          <div className="h-14 w-20 shrink-0 rounded-lg bg-surface-hover" />
-                        )}
-                        <div className="min-w-0 flex-1">
-                          <p className="line-clamp-2 text-xs font-medium text-foreground">
-                            {item.title}
-                          </p>
-                          <p className="mt-1 truncate text-[11px] text-subtle">
-                            {item.author}
-                            <span className="mx-1">·</span>
-                            {item.durationText}
-                            <span className="mx-1">·</span>
-                            {formatPlay(item.play)} 播放
-                            {delta ? (
-                              <>
-                                <span className="mx-1">·</span>
-                                <span className="text-muted">{delta}</span>
-                              </>
-                            ) : null}
-                          </p>
-                          <p className="mt-0.5 truncate text-[10px] text-subtle">{item.bvid}</p>
-                        </div>
-                        <button
-                          type="button"
-                          disabled={
-                            alreadyDownloaded ||
-                            downloadingBvid !== null ||
-                            autoDownloadFirst
-                          }
-                          onClick={() => void handleDownload(item)}
-                          aria-busy={busy}
-                          title={
-                            alreadyDownloaded
-                              ? downloadedEntry?.path ?? '已下载'
-                              : undefined
-                          }
-                          className={`inline-flex h-8 w-[5rem] shrink-0 items-center justify-center gap-1.5 self-center rounded-xl border px-2 text-[11px] transition-all duration-200 ${
-                            alreadyDownloaded
-                              ? 'cursor-default border-success/35 bg-success/15 text-success'
-                              : busy
-                                ? 'cursor-wait border-muted bg-surface-hover text-foreground'
-                                : 'border-border bg-surface text-foreground hover:border-muted hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-40'
-                          }`}
-                        >
-                          <FontAwesomeIcon
-                            icon={
-                              alreadyDownloaded
-                                ? faCircleCheck
-                                : busy
-                                  ? faSpinner
-                                  : faDownload
-                            }
-                            className={`h-3 w-3 shrink-0 ${busy ? 'animate-spin' : ''}`}
-                          />
-                          <span className="leading-none">
-                            {alreadyDownloaded ? '已下载' : busy ? '下载中' : '下载'}
-                          </span>
-                        </button>
-                      </li>
-                    )
-                  })}
-                </ul>
-              )}
-              {items.length > 0 && !autoDownloadFirst && (
-                <div ref={sentinelRef} className="flex h-10 items-center justify-center">
-                  {hasMore ? (
-                    <p className="flex items-center gap-1.5 text-[11px] text-subtle">
-                      {loadingMore && (
+                  {autoStatus && (
+                    <p className="mt-1.5 flex items-center gap-1.5 text-[11px] text-muted">
+                      {(loading || downloadingBvid) && (
                         <FontAwesomeIcon icon={faSpinner} className="h-2.5 w-2.5 animate-spin" />
                       )}
-                      {loadingMore ? '加载更多…' : ''}
+                      {autoStatus}
                     </p>
-                  ) : (
-                    <p className="text-[11px] text-subtle">已加载全部</p>
                   )}
                 </div>
-              )}
-            </div>
-
-            {openPath && (
-              <div className="shrink-0 border-t border-border-subtle px-5 py-3">
-                <button
-                  type="button"
-                  onClick={() => void revealItemInDir(openPath)}
-                  className="inline-flex items-center gap-1.5 text-[11px] text-muted transition-colors hover:text-foreground"
-                >
-                  <FontAwesomeIcon icon={faFolderOpen} className="h-3 w-3" />
-                  打开所在目录
-                </button>
+                {!autoDownloadFirst && (
+                  <button
+                    type="button"
+                    onClick={handleClose}
+                    className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-subtle transition-colors hover:bg-surface-hover hover:text-foreground"
+                    aria-label="关闭弹框"
+                  >
+                    <FontAwesomeIcon icon={faXmark} className="h-3.5 w-3.5" />
+                  </button>
+                )}
               </div>
-            )}
+
+              <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
+                {loading && items.length === 0 && (
+                  <div
+                    className="flex h-full min-h-[12rem] items-center justify-center gap-2 text-xs text-muted"
+                    role="status"
+                  >
+                    <FontAwesomeIcon icon={faSpinner} className="h-3.5 w-3.5 animate-spin" />
+                    正在 B 站搜索…
+                  </div>
+                )}
+                {error && !loading && items.length === 0 && (
+                  <div className="flex h-full min-h-[12rem] items-center justify-center px-6" role="alert">
+                    <p className="text-center text-xs text-danger">{error}</p>
+                  </div>
+                )}
+                {!loading && !error && items.length === 0 && (
+                  <div className="flex h-full min-h-[12rem] items-center justify-center">
+                    <p className="text-xs text-muted">未找到相关稿件</p>
+                  </div>
+                )}
+                {items.length > 0 && (
+                  <ul className="space-y-2">
+                    {items.map((item) => {
+                      const delta = formatDelta(item.durationDeltaMs)
+                      const busy = downloadingBvid === item.bvid
+                      const alreadyDownloaded =
+                        !!downloadedEntry && downloadedEntry.bvid === item.bvid
+                      const isAutoTarget = autoTargetBvid === item.bvid
+                      const canOpenDetail = !autoDownloadFirst
+                      return (
+                        <li
+                          key={item.bvid}
+                          className={`flex gap-3 rounded-xl border p-3 transition-colors duration-200 ${
+                            isAutoTarget
+                              ? 'border-foreground/25 bg-surface-hover/60'
+                              : alreadyDownloaded
+                                ? 'border-success/40 bg-success/10'
+                                : 'border-border-subtle bg-background/40'
+                          }`}
+                        >
+                          <button
+                            type="button"
+                            disabled={!canOpenDetail}
+                            onClick={() => setSelectedItem(item)}
+                            className={`flex min-w-0 flex-1 gap-3 text-left ${
+                              canOpenDetail
+                                ? 'cursor-pointer rounded-lg outline-offset-2 hover:opacity-90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-foreground/30'
+                                : 'cursor-default'
+                            }`}
+                          >
+                            {item.cover ? (
+                              <img
+                                src={item.cover}
+                                alt=""
+                                className="h-14 w-20 shrink-0 rounded-lg object-cover"
+                                loading="lazy"
+                                referrerPolicy="no-referrer"
+                              />
+                            ) : (
+                              <div className="h-14 w-20 shrink-0 rounded-lg bg-surface-hover" />
+                            )}
+                            <div className="min-w-0 flex-1">
+                              <p className="line-clamp-2 text-xs font-medium text-foreground">
+                                {item.title}
+                              </p>
+                              <p className="mt-1 truncate text-[11px] text-subtle">
+                                {item.author}
+                                <span className="mx-1">·</span>
+                                {item.durationText}
+                                <span className="mx-1">·</span>
+                                {formatPlay(item.play)} 播放
+                                {delta ? (
+                                  <>
+                                    <span className="mx-1">·</span>
+                                    <span className="text-muted">{delta}</span>
+                                  </>
+                                ) : null}
+                              </p>
+                              <p className="mt-0.5 truncate text-[10px] text-subtle">{item.bvid}</p>
+                            </div>
+                          </button>
+                          <button
+                            type="button"
+                            disabled={
+                              alreadyDownloaded ||
+                              downloadingBvid !== null ||
+                              autoDownloadFirst
+                            }
+                            onClick={() => void handleDownload(item)}
+                            aria-busy={busy}
+                            title={
+                              alreadyDownloaded
+                                ? downloadedEntry?.path ?? '已下载'
+                                : undefined
+                            }
+                            className={`inline-flex h-8 w-[5rem] shrink-0 items-center justify-center gap-1.5 self-center rounded-xl border px-2 text-[11px] transition-all duration-200 ${
+                              alreadyDownloaded
+                                ? 'cursor-default border-success/35 bg-success/15 text-success'
+                                : busy
+                                  ? 'cursor-wait border-muted bg-surface-hover text-foreground'
+                                  : 'border-border bg-surface text-foreground hover:border-muted hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-40'
+                            }`}
+                          >
+                            <FontAwesomeIcon
+                              icon={
+                                alreadyDownloaded
+                                  ? faCircleCheck
+                                  : busy
+                                    ? faSpinner
+                                    : faDownload
+                              }
+                              className={`h-3 w-3 shrink-0 ${busy ? 'animate-spin' : ''}`}
+                            />
+                            <span className="leading-none">
+                              {alreadyDownloaded ? '已下载' : busy ? '下载中' : '下载'}
+                            </span>
+                          </button>
+                        </li>
+                      )
+                    })}
+                  </ul>
+                )}
+                {items.length > 0 && !autoDownloadFirst && (
+                  <div ref={sentinelRef} className="flex h-10 items-center justify-center">
+                    {hasMore ? (
+                      <p className="flex items-center gap-1.5 text-[11px] text-subtle">
+                        {loadingMore && (
+                          <FontAwesomeIcon icon={faSpinner} className="h-2.5 w-2.5 animate-spin" />
+                        )}
+                        {loadingMore ? '加载更多…' : ''}
+                      </p>
+                    ) : (
+                      <p className="text-[11px] text-subtle">已加载全部</p>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {openPath && (
+                <div className="shrink-0 border-t border-border-subtle px-5 py-3">
+                  <button
+                    type="button"
+                    onClick={() => void revealItemInDir(openPath)}
+                    className="inline-flex items-center gap-1.5 text-[11px] text-muted transition-colors hover:text-foreground"
+                  >
+                    <FontAwesomeIcon icon={faFolderOpen} className="h-3 w-3" />
+                    打开所在目录
+                  </button>
+                </div>
+              )}
+            </motion.div>
           </motion.div>
-        </motion.div>
-      )}
-    </AnimatePresence>,
+        )}
+      </AnimatePresence>
+
+      <SniffVideoDetailDialog
+        open={open && selectedItem !== null && !autoDownloadFirst}
+        item={selectedItem}
+        alreadyDownloaded={detailAlreadyDownloaded}
+        downloading={!!selectedItem && downloadingBvid === selectedItem.bvid}
+        openPath={detailOpenPath}
+        downloadDisabled={downloadingBvid !== null}
+        onClose={() => setSelectedItem(null)}
+        onDownload={(item) => void handleDownload(item)}
+      />
+    </>,
     document.body,
   )
 }

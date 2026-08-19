@@ -12,6 +12,7 @@ import {
   faLayerGroup,
   faStop,
   faRotateRight,
+  faEllipsis,
 } from '@fortawesome/free-solid-svg-icons'
 import { motion } from 'framer-motion'
 import gsap from 'gsap'
@@ -87,7 +88,9 @@ export function TrackPanel({
   const [batchSongId, setBatchSongId] = useState<number | null>(null)
   const [batchSuccess, setBatchSuccess] = useState(0)
   const [batchStatus, setBatchStatus] = useState<string | null>(null)
+  const [menuOpen, setMenuOpen] = useState(false)
   const exportBtnRef = useRef<HTMLDivElement>(null)
+  const menuRef = useRef<HTMLDivElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const rowRefs = useRef(new Map<number, HTMLTableRowElement>())
   const cancelBatchRef = useRef(false)
@@ -166,6 +169,7 @@ export function TrackPanel({
     setBatchSongId(null)
     setBatchStatus(null)
     setSniffTrack(null)
+    setMenuOpen(false)
     appliedSeqKey.current = ''
     dismissTask(TASK_IDS.neteaseBatch)
     registerCancelHandler(TASK_IDS.neteaseBatch, null)
@@ -210,6 +214,22 @@ export function TrackPanel({
     orderedTracks,
     seqBySongId,
   ])
+
+  useEffect(() => {
+    if (!menuOpen) return
+    const onPointerDown = (e: PointerEvent) => {
+      if (!menuRef.current?.contains(e.target as Node)) setMenuOpen(false)
+    }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setMenuOpen(false)
+    }
+    window.addEventListener('pointerdown', onPointerDown)
+    window.addEventListener('keydown', onKey)
+    return () => {
+      window.removeEventListener('pointerdown', onPointerDown)
+      window.removeEventListener('keydown', onKey)
+    }
+  }, [menuOpen])
 
   const handleExport = async (format: ExportFormat) => {
     if (!playlist || batchActive) return
@@ -412,72 +432,120 @@ export function TrackPanel({
                 : '选择左侧歌单查看曲目'}
             </p>
           </div>
-          <div ref={exportBtnRef} className="flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              disabled={
-                !playlist ||
-                tracks.length === 0 ||
-                exporting !== null ||
-                syncing ||
-                (!batchActive && pendingCount === 0)
-              }
-              onClick={handleBatchClick}
-              className={`inline-flex h-8 items-center gap-1.5 whitespace-nowrap rounded-xl border px-2.5 text-xs transition-all duration-200 ${
-                batchActive
-                  ? 'border-danger/35 bg-danger/10 text-danger hover:bg-danger/15'
-                  : 'border-border bg-background text-foreground hover:border-muted hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-40'
-              }`}
-            >
-              <FontAwesomeIcon
-                icon={batchActive ? (batchStopping ? faSpinner : faStop) : faLayerGroup}
-                className={`h-3 w-3 ${batchStopping ? 'animate-spin' : ''}`}
-              />
-              {batchActive
-                ? batchStopping
-                  ? '正在停止'
-                  : '停止批量'
-                : '一键嗅探下载'}
-            </button>
-            <button
-              type="button"
-              disabled={!playlist || exporting !== null || batchActive || syncing}
-              onClick={() => void handleSyncStatus()}
-              title="扫描 downloads/网易云音乐，按本地文件同步已下载状态"
-              className="inline-flex h-8 items-center gap-1.5 whitespace-nowrap rounded-xl border border-border bg-background px-2.5 text-xs text-foreground transition-all duration-200 hover:border-muted hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              <FontAwesomeIcon
-                icon={syncing ? faSpinner : faRotateRight}
-                className={`h-3 w-3 ${syncing ? 'animate-spin' : ''}`}
-              />
-              {syncing ? '同步中' : '状态同步'}
-            </button>
-            <ExportButton
-              label="JSON"
-              icon={faFileCode}
-              disabled={
-                !playlist ||
-                tracks.length === 0 ||
-                exporting !== null ||
-                batchActive ||
-                syncing
-              }
-              loading={exporting === 'json'}
-              onClick={() => void handleExport('json')}
-            />
-            <ExportButton
-              label="CSV"
-              icon={faTable}
-              disabled={
-                !playlist ||
-                tracks.length === 0 ||
-                exporting !== null ||
-                batchActive ||
-                syncing
-              }
-              loading={exporting === 'csv'}
-              onClick={() => void handleExport('csv')}
-            />
+          <div ref={menuRef} className="relative shrink-0">
+            <div ref={exportBtnRef}>
+              <button
+                type="button"
+                aria-label="歌单操作"
+                aria-haspopup="menu"
+                aria-expanded={menuOpen}
+                disabled={!playlist}
+                onClick={() => setMenuOpen((open) => !open)}
+                className={`relative inline-flex h-8 w-8 items-center justify-center rounded-xl text-muted transition-colors duration-200 hover:bg-surface-hover hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40 ${
+                  menuOpen ? 'bg-surface-hover text-foreground' : ''
+                } ${batchActive ? 'text-danger hover:text-danger' : ''}`}
+              >
+                <FontAwesomeIcon icon={faEllipsis} className="h-3.5 w-3.5" />
+                {batchActive && (
+                  <span className="absolute top-1.5 right-1.5 h-1.5 w-1.5 rounded-full bg-danger" />
+                )}
+              </button>
+            </div>
+            {menuOpen && playlist && (
+              <div
+                role="menu"
+                className="absolute top-full right-0 z-20 mt-1.5 w-44 overflow-hidden rounded-xl border border-border bg-surface py-1 shadow-xl"
+              >
+                <button
+                  type="button"
+                  role="menuitem"
+                  disabled={
+                    tracks.length === 0 ||
+                    exporting !== null ||
+                    syncing ||
+                    (!batchActive && pendingCount === 0)
+                  }
+                  onClick={() => {
+                    setMenuOpen(false)
+                    handleBatchClick()
+                  }}
+                  className={`flex w-full items-center gap-2 px-3 py-2 text-left text-xs transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+                    batchActive
+                      ? 'text-danger hover:bg-danger/10'
+                      : 'text-foreground hover:bg-surface-hover'
+                  }`}
+                >
+                  <FontAwesomeIcon
+                    icon={batchActive ? (batchStopping ? faSpinner : faStop) : faLayerGroup}
+                    className={`h-3 w-3 shrink-0 ${batchStopping ? 'animate-spin' : ''}`}
+                  />
+                  {batchActive
+                    ? batchStopping
+                      ? '正在停止'
+                      : '停止批量'
+                    : '一键嗅探下载'}
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  disabled={exporting !== null || batchActive || syncing}
+                  title="扫描 downloads/网易云音乐，按本地文件同步已下载状态"
+                  onClick={() => {
+                    setMenuOpen(false)
+                    void handleSyncStatus()
+                  }}
+                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-foreground transition-colors hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  <FontAwesomeIcon
+                    icon={syncing ? faSpinner : faRotateRight}
+                    className={`h-3 w-3 shrink-0 ${syncing ? 'animate-spin' : ''}`}
+                  />
+                  {syncing ? '同步中' : '状态同步'}
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  disabled={
+                    tracks.length === 0 ||
+                    exporting !== null ||
+                    batchActive ||
+                    syncing
+                  }
+                  onClick={() => {
+                    setMenuOpen(false)
+                    void handleExport('json')
+                  }}
+                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-foreground transition-colors hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  <FontAwesomeIcon
+                    icon={exporting === 'json' ? faSpinner : faFileCode}
+                    className={`h-3 w-3 shrink-0 ${exporting === 'json' ? 'animate-spin' : ''}`}
+                  />
+                  导出 JSON
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  disabled={
+                    tracks.length === 0 ||
+                    exporting !== null ||
+                    batchActive ||
+                    syncing
+                  }
+                  onClick={() => {
+                    setMenuOpen(false)
+                    void handleExport('csv')
+                  }}
+                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-foreground transition-colors hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  <FontAwesomeIcon
+                    icon={exporting === 'csv' ? faSpinner : faTable}
+                    className={`h-3 w-3 shrink-0 ${exporting === 'csv' ? 'animate-spin' : ''}`}
+                  />
+                  导出 CSV
+                </button>
+              </div>
+            )}
           </div>
         </div>
 
@@ -668,34 +736,5 @@ export function TrackPanel({
         onDownloaded={markDownloaded}
       />
     </section>
-  )
-}
-
-function ExportButton({
-  label,
-  icon,
-  disabled,
-  loading,
-  onClick,
-}: {
-  label: string
-  icon: typeof faFileCode
-  disabled: boolean
-  loading: boolean
-  onClick: () => void
-}) {
-  return (
-    <button
-      type="button"
-      disabled={disabled}
-      onClick={onClick}
-      className="inline-flex items-center gap-1.5 rounded-xl border border-border bg-background px-2.5 py-1.5 text-xs text-foreground transition-all duration-200 ease-in-out hover:border-muted hover:bg-surface-hover hover:shadow-sm disabled:cursor-not-allowed disabled:opacity-40"
-    >
-      <FontAwesomeIcon
-        icon={loading ? faSpinner : icon}
-        className={`h-3 w-3 ${loading ? 'animate-spin' : ''}`}
-      />
-      {label}
-    </button>
   )
 }
