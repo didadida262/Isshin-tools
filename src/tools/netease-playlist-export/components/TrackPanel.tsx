@@ -509,7 +509,7 @@ export function TrackPanel({
                   type="button"
                   role="menuitem"
                   disabled={exporting !== null || batchActive || syncing}
-                  title="扫描 downloads/网易云音乐，按本地文件同步已下载状态"
+                  title="扫描 downloads/网易云音乐/旅途图262喜欢的音乐，按本地文件同步已下载状态"
                   onClick={() => {
                     setMenuOpen(false)
                     void handleSyncStatus()

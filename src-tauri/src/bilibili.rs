@@ -384,6 +384,9 @@ fn collect_downloaded_media_files(root: &Path) -> Result<Vec<PathBuf>, String> {
     Ok(out)
 }
 
+/// 状态同步只扫描该歌单目录，忽略「中转」等其它子文件夹。
+const SYNC_PLAYLIST_FOLDER: &str = "旅途图262喜欢的音乐";
+
 fn resolve_download_root(app: &AppHandle) -> Result<PathBuf, String> {
     let from_manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .parent()
@@ -838,7 +841,12 @@ pub async fn bilibili_sync_downloaded(app: AppHandle) -> Result<BiliSyncResult, 
     let root = resolve_download_root(&app)?;
     let _guard = index_lock().lock().await;
     let old_index = load_index(&root).await?;
-    let files = collect_downloaded_media_files(&root)?;
+    let sync_dir = root.join(sanitize_filename(SYNC_PLAYLIST_FOLDER));
+    let files = if sync_dir.is_dir() {
+        collect_downloaded_media_files(&sync_dir)?
+    } else {
+        Vec::new()
+    };
 
     struct FoundMedia {
         path: PathBuf,
