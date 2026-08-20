@@ -705,7 +705,7 @@ export function ResourceSniffDialog({
         downloading={!!selectedItem && downloadingBvid === selectedItem.bvid}
         openPath={detailOpenPath}
         downloadDisabled={downloadingBvid !== null}
-        onClose={() => setSelectedItem(null)}
+        onClose={handleClose}
         onDownload={(item) => void handleDownload(item)}
       />
     </>,
