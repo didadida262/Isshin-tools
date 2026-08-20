@@ -90,6 +90,10 @@ export async function syncDownloadedBilibili(): Promise<BiliSyncResult> {
   return invoke<BiliSyncResult>('bilibili_sync_downloaded')
 }
 
+export async function deleteDownloadedBilibili(songId: number): Promise<void> {
+  await invoke('bilibili_delete_downloaded', { songId })
+}
+
 export async function applyPlaylistTrackSeq(
   playlistId: number,
   songIds: number[],

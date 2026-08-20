@@ -448,6 +448,25 @@ async fn upsert_index_entry(root: &Path, entry: BiliDownloadedEntry) -> Result<(
     save_index(root, &index).await
 }
 
+fn ensure_deletable_under_root(path: &Path, root: &Path) -> Result<PathBuf, String> {
+    let canon_root = root
+        .canonicalize()
+        .map_err(|e| format!("解析下载目录失败: {e}"))?;
+    let canon_path = path
+        .canonicalize()
+        .map_err(|e| format!("解析文件路径失败: {e}"))?;
+    if !canon_path.starts_with(&canon_root) {
+        return Err("文件不在下载目录内，拒绝删除".into());
+    }
+    if canon_path.file_name().and_then(|n| n.to_str()) == Some("index.json") {
+        return Err("不能删除下载索引".into());
+    }
+    if !canon_path.is_file() {
+        return Err("路径不是可删除的文件".into());
+    }
+    Ok(canon_path)
+}
+
 async fn get_json(url: &str) -> Result<Value, String> {
     let resp = http_client()
         .get(url)
@@ -777,6 +796,31 @@ pub async fn bilibili_list_downloaded(app: AppHandle) -> Result<Vec<BiliDownload
     }
     alive.sort_by_key(|e| e.song_id);
     Ok(alive)
+}
+
+#[tauri::command]
+pub async fn bilibili_delete_downloaded(app: AppHandle, song_id: u64) -> Result<(), String> {
+    if song_id == 0 {
+        return Err("songId 无效".into());
+    }
+    let root = resolve_download_root(&app)?;
+    let _guard = index_lock().lock().await;
+    let mut index = load_index(&root).await?;
+    let key = song_id.to_string();
+    let Some(entry) = index.entries.get(&key).cloned() else {
+        return Err("未找到该曲目的本地下载记录".into());
+    };
+
+    let path = PathBuf::from(&entry.path);
+    if path.exists() {
+        let canon = ensure_deletable_under_root(&path, &root)?;
+        fs::remove_file(&canon)
+            .await
+            .map_err(|e| format!("删除文件失败: {e}"))?;
+    }
+
+    index.entries.remove(&key);
+    save_index(&root, &index).await
 }
 
 #[derive(Debug, Clone, Serialize)]

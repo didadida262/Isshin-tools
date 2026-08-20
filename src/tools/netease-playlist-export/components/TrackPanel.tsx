@@ -13,6 +13,7 @@ import {
   faStop,
   faRotateRight,
   faEllipsis,
+  faTrashCan,
 } from '@fortawesome/free-solid-svg-icons'
 import { motion } from 'framer-motion'
 import gsap from 'gsap'
@@ -89,12 +90,13 @@ export function TrackPanel({
   const [batchSuccess, setBatchSuccess] = useState(0)
   const [batchStatus, setBatchStatus] = useState<string | null>(null)
   const [menuOpen, setMenuOpen] = useState(false)
+  const [deletingSongId, setDeletingSongId] = useState<number | null>(null)
   const exportBtnRef = useRef<HTMLDivElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const rowRefs = useRef(new Map<number, HTMLTableRowElement>())
   const cancelBatchRef = useRef(false)
-  const { bySongId, markDownloaded, reload, syncing, syncFromDisk } =
+  const { bySongId, markDownloaded, deleteDownloaded, reload, syncing, syncFromDisk } =
     useDownloadedTracks()
   const bySongIdRef = useRef(bySongId)
   bySongIdRef.current = bySongId
@@ -170,6 +172,7 @@ export function TrackPanel({
     setBatchStatus(null)
     setSniffTrack(null)
     setMenuOpen(false)
+    setDeletingSongId(null)
     appliedSeqKey.current = ''
     dismissTask(TASK_IDS.neteaseBatch)
     registerCancelHandler(TASK_IDS.neteaseBatch, null)
@@ -416,6 +419,23 @@ export function TrackPanel({
     }
   }
 
+  const handleDeleteLocal = async (track: NeteaseTrack) => {
+    if (batchActive || syncing || deletingSongId != null) return
+    const entry = bySongId.get(track.songId)
+    if (!entry) return
+    setDeletingSongId(track.songId)
+    try {
+      await deleteDownloaded(track.songId)
+      if (lastPath === entry.path) setLastPath(null)
+      toast(`已删除本地文件 · ${track.name}`, 'success')
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e)
+      toast(`删除失败：${message}`, 'danger')
+    } finally {
+      setDeletingSongId(null)
+    }
+  }
+
   return (
     <section className="flex h-full min-h-0 flex-col overflow-hidden rounded-2xl border border-border-subtle bg-surface/60">
       <header className="shrink-0 border-b border-border-subtle px-4 py-3">
@@ -616,7 +636,7 @@ export function TrackPanel({
               <col style={{ width: '46%' }} />
               <col style={{ width: '18%' }} />
               <col style={{ width: '3.5rem' }} />
-              <col style={{ width: '5.5rem' }} />
+              <col style={{ width: '7.25rem' }} />
             </colgroup>
             <thead className="sticky top-0 z-10 bg-surface/95 backdrop-blur-sm">
               <tr className="border-b border-border-subtle text-[10px] uppercase tracking-wider text-subtle">
@@ -705,15 +725,30 @@ export function TrackPanel({
                           />
                         </button>
                         {downloaded && (
-                          <button
-                            type="button"
-                            onClick={() => void revealExport(downloaded.path)}
-                            className="inline-flex h-7 w-7 items-center justify-center rounded-lg text-muted transition-colors duration-200 hover:bg-background hover:text-foreground"
-                            title="打开文件位置"
-                            aria-label={`打开 ${track.name} 所在文件夹`}
-                          >
-                            <FontAwesomeIcon icon={faFolderOpen} className="h-3 w-3" />
-                          </button>
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => void revealExport(downloaded.path)}
+                              className="inline-flex h-7 w-7 items-center justify-center rounded-lg text-muted transition-colors duration-200 hover:bg-background hover:text-foreground"
+                              title="打开文件位置"
+                              aria-label={`打开 ${track.name} 所在文件夹`}
+                            >
+                              <FontAwesomeIcon icon={faFolderOpen} className="h-3 w-3" />
+                            </button>
+                            <button
+                              type="button"
+                              disabled={batchActive || syncing || deletingSongId != null}
+                              onClick={() => void handleDeleteLocal(track)}
+                              className="inline-flex h-7 w-7 items-center justify-center rounded-lg text-muted transition-colors duration-200 hover:bg-background hover:text-danger disabled:cursor-not-allowed disabled:opacity-40"
+                              title="删除本地文件"
+                              aria-label={`删除 ${track.name} 的本地文件`}
+                            >
+                              <FontAwesomeIcon
+                                icon={deletingSongId === track.songId ? faSpinner : faTrashCan}
+                                className={`h-3 w-3 ${deletingSongId === track.songId ? 'animate-spin' : ''}`}
+                              />
+                            </button>
+                          </>
                         )}
                       </div>
                     </td>

@@ -51,6 +51,7 @@ pub fn run() {
             bilibili::bilibili_download,
             bilibili::bilibili_list_downloaded,
             bilibili::bilibili_sync_downloaded,
+            bilibili::bilibili_delete_downloaded,
             bilibili::bilibili_apply_track_seq,
             douyin::douyin_login_cookie,
             douyin::douyin_qr_start,

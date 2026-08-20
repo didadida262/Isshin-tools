@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import {
+  deleteDownloadedBilibili,
   listDownloadedBilibili,
   syncDownloadedBilibili,
   type BiliDownloadedEntry,
@@ -46,6 +47,15 @@ export function useDownloadedTracks() {
     })
   }, [])
 
+  const deleteDownloaded = useCallback(async (songId: number) => {
+    await deleteDownloadedBilibili(songId)
+    setBySongId((prev) => {
+      const next = new Map(prev)
+      next.delete(songId)
+      return next
+    })
+  }, [])
+
   const syncFromDisk = useCallback(async (): Promise<BiliSyncResult> => {
     setSyncing(true)
     try {
@@ -57,5 +67,13 @@ export function useDownloadedTracks() {
     }
   }, [])
 
-  return { bySongId, loading, syncing, reload, markDownloaded, syncFromDisk }
+  return {
+    bySongId,
+    loading,
+    syncing,
+    reload,
+    markDownloaded,
+    deleteDownloaded,
+    syncFromDisk,
+  }
 }
