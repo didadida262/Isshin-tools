@@ -133,7 +133,7 @@ export function ResourceSniffDialog({
     loadingMoreRef.current = false
     setAutoStatus(autoDownloadFirst ? '正在 B 站搜索…' : null)
     setAutoTargetBvid(null)
-    const keyword = [track.name, track.artists].filter(Boolean).join(' ')
+    const keyword = [track.name, track.artists, 'MV'].filter(Boolean).join(' ')
     const durationMs = track.durationMs || undefined
 
     const sleepSec = (sec: number) =>
@@ -227,7 +227,7 @@ export function ResourceSniffDialog({
     const nextPage = pageRef.current + 1
     loadingMoreRef.current = true
     setLoadingMore(true)
-    const keyword = [track.name, track.artists].filter(Boolean).join(' ')
+    const keyword = [track.name, track.artists, 'MV'].filter(Boolean).join(' ')
     const durationMs = track.durationMs || undefined
     try {
       const result = await searchBilibili(keyword, durationMs, nextPage)
@@ -520,7 +520,7 @@ export function ResourceSniffDialog({
                     {track.name}
                     <span className="text-subtle"> · </span>
                     {track.artists || '未知歌手'}
-                    <span className="text-subtle"> · 源：B站 · 下载含视频+音频</span>
+                    <span className="text-subtle"> · MV · 源：B站 · 下载含视频+音频</span>
                   </p>
                   {autoStatus && (
                     <p className="mt-1.5 flex items-center gap-1.5 text-[11px] text-muted">
