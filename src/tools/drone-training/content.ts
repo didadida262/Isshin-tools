@@ -59,6 +59,16 @@ export type StageBlock =
   | WarnBlock
   | PitfallsBlock
 
+export interface PrepItem {
+  name: string
+  spec: string
+}
+
+export interface PrepGroup {
+  label: string
+  items: PrepItem[]
+}
+
 export interface Stage {
   id: string
   index: string
@@ -66,6 +76,7 @@ export interface Stage {
   hours: string
   goal: string
   deliverable: string
+  prep: PrepGroup[]
   pass: string[]
   blocks: StageBlock[]
 }
@@ -85,6 +96,42 @@ export const STAGES: Stage[] = [
     hours: '1 个周末',
     goal: '板子能烧录、灯会闪、串口能说话。没有这三件事，后面所有「读传感器」都是空谈。',
     deliverable: '一台已点亮的 STM32，电脑串口助手里每秒一行心跳。',
+    prep: [
+      {
+        label: '本阶段桌上要有',
+        items: [
+          { name: '主控', spec: 'STM32F411CEU6 最小系统（或 F401）；带板载 LED' },
+          { name: '下载器', spec: 'ST-Link V2，杜邦线接 SWDIO / SWCLK / GND / 3V3' },
+          { name: 'USB-TTL', spec: 'CH340 或 CP2102；交叉收发，与 MCU 共地' },
+          { name: '电脑', spec: '能跑 STM32CubeIDE，或 arm-none-eabi-gcc + OpenOCD' },
+        ],
+      },
+      {
+        label: '软件',
+        items: [
+          { name: 'IDE / 工具链', spec: 'CubeIDE 或 gcc；CubeMX 开 FPU、SysTick 1 ms' },
+          { name: '串口助手', spec: '115200 8N1，例如 PuTTY、串口调试助手、minicom' },
+        ],
+      },
+      {
+        label: '建议一次买齐（1–4 阶段会用到）',
+        items: [
+          { name: 'IMU', spec: 'MPU6500（SPI）优先，否则 MPU6050（I2C）' },
+          { name: '3.3 V LDO', spec: 'AMS1117-3.3；IMU 和 MCU 用它，不要 5 V' },
+          { name: '电机 ×4', spec: '0720 / 0820 空心杯' },
+          { name: 'MOS ×4', spec: 'SI2302，另备 100 Ω 栅极电阻、10 kΩ 下拉各 4 只' },
+          { name: '机架 / 桨', spec: '75 mm 塑料架 + 正反塑料桨；本阶段先不装' },
+          { name: '1S 电池', spec: '3.7 V 300–500 mAh；本阶段用 ST-Link/USB 供电即可' },
+          { name: '输入', spec: '两只 10 k 电位器，或带开关的遥控接收机' },
+        ],
+      },
+      {
+        label: '本阶段不要接',
+        items: [
+          { name: '电机 / 桨 / 动力电池', spec: '闪灯和串口阶段禁止上动力，避免浮空 PWM 抽转' },
+        ],
+      },
+    ],
     pass: [
       'ST-Link 能稳定下载，复位后程序还在',
       '板载 LED 约 1 Hz 闪烁',
@@ -108,7 +155,7 @@ export const STAGES: Stage[] = [
       },
       {
         type: 'table',
-        title: '先买这些（主体约 200–400 元）',
+        title: '一次买齐明细（含用途）',
         caption: '推荐 STM32F411「黑药丸」：Flash / RAM 比 F401 宽，后面加地面站协议不至于抠字节。',
         headers: ['物料', '规格', '数量', '为什么要它'],
         rows: [
@@ -168,6 +215,38 @@ export const STAGES: Stage[] = [
     hours: '约 1 周',
     goal: '从寄存器读出加速度和角速度，并完成陀螺零偏校准。后面所有滤波都建立在这组数是对的。',
     deliverable: '串口能打印 ax ay az gx gy gz；板子静置时陀螺三轴接近 0。',
+    prep: [
+      {
+        label: '上一阶段必须已经有',
+        items: [
+          { name: '可下载的工程', spec: 'LED 能闪，USART 115200 能打印心跳' },
+          { name: 'SWD + USB-TTL', spec: '接线保持阶段 0，本阶段只加 IMU' },
+        ],
+      },
+      {
+        label: '本阶段新拿上桌',
+        items: [
+          { name: 'IMU 模块', spec: 'MPU6500 或 MPU6050；VCC 只接 3.3 V' },
+          { name: 'LDO 3.3 V', spec: '给 IMU（和 MCU 若不再用 ST-Link 供电）' },
+          { name: 'I2C 上拉', spec: '4.7 kΩ ×2 到 3.3 V；模块板载已有可不再加' },
+          { name: '洞洞板 / 杜邦线', spec: '先别焊上机架，方便改轴、换线' },
+          { name: '数据手册', spec: 'MPU-6000/6050 或 MPU-6500 Register Map PDF' },
+        ],
+      },
+      {
+        label: '软件',
+        items: [
+          { name: 'CubeMX', spec: '打开 I2C1（PB6/PB7）或 SPI；速率先 400 kHz / 1–8 MHz' },
+          { name: 'HAL I2C/SPI', spec: '能 Mem_Read / 读 14 字节即可，不要启用 DMP 库' },
+        ],
+      },
+      {
+        label: '本阶段不要接',
+        items: [
+          { name: '电机与 MOS', spec: '振动和总线干扰会让你误判 IMU；静置数据先做干净' },
+        ],
+      },
+    ],
     pass: [
       'WHO_AM_I 读到 0x68（MPU6050）或 0x70 / 0x72（MPU6500 / 9250 一类）',
       '静置 1000 组后写入 offset，之后 gx/gy/gz 在 ±1 °/s 量级晃',
@@ -243,6 +322,30 @@ export const STAGES: Stage[] = [
     hours: '约 1 周',
     goal: '把 RAW 融合成可用的 Pitch / Roll。手持机架转动，串口里的角要跟手走；放下后不明显漂。',
     deliverable: '以固定周期（建议 500 Hz–1 kHz）输出 Pitch、Roll；Yaw 可打印但本阶段不作为过关项。',
+    prep: [
+      {
+        label: '上一阶段必须已经有',
+        items: [
+          { name: '校准后的 RAW', spec: 'WHO_AM_I 正确；静置陀螺 ≈ 0；轴映射已写进注释' },
+          { name: '同一块 IMU 板', spec: '不要更换安装方向，否则阶段 1 的符号作废' },
+        ],
+      },
+      {
+        label: '本阶段新拿上桌',
+        items: [
+          { name: '硬件无新增', spec: '仍用阶段 1 的 MCU + IMU + 串口，不接电机' },
+          { name: '一块能放平的桌面', spec: '静置测漂移；手持绕单轴慢转核对 Pitch/Roll' },
+        ],
+      },
+      {
+        label: '软件',
+        items: [
+          { name: '硬件定时器', spec: '500 Hz 或 1 kHz 中断/标志；禁止再用 HAL_Delay 当 dt' },
+          { name: 'math.h / arm_math', spec: 'atan2f、sqrtf；FPU 必须已在阶段 0 打开' },
+          { name: '串口绘图（可选）', spec: 'Arduino Serial Plotter、Serial Studio，50 Hz 打 Pitch,Roll' },
+        ],
+      },
+    ],
     pass: [
       '静置接近 0°/0°（数度以内，取决于安装水平）',
       '手动倾斜约 45°，读数同方向、量级接近，松手回到水平',
@@ -302,6 +405,40 @@ export const STAGES: Stage[] = [
     hours: '约 1 周',
     goal: '四路 PWM 能转空心杯，混控符号正确，未解锁时电机死寂。这一阶段结束时飞机还不能飞，但动力链必须可预测。',
     deliverable: '不装桨：油门电位器能同时加四路转速；点 Roll/Pitch/Yaw 时对角或相邻差速符合混控；Disarm 立刻停转。',
+    prep: [
+      {
+        label: '上一阶段必须已经有',
+        items: [
+          { name: '可用的 Pitch/Roll', spec: '手持转动跟手走，静置 10 s 漂移小于约 2°' },
+          { name: '固定控制周期', spec: '姿态环已在 500 Hz+ 跑，不要在这阶段改回 Delay' },
+        ],
+      },
+      {
+        label: '本阶段新拿上桌',
+        items: [
+          { name: '空心杯 ×4', spec: '0720 / 0820；先不装桨' },
+          { name: 'SI2302 ×4', spec: 'N 沟道逻辑电平 MOS' },
+          { name: '电阻', spec: '栅极 100 Ω ×4，Gate 下拉 10 kΩ ×4' },
+          { name: '1S 电池', spec: '3.7 V 300–500 mAh；电机走 VBAT，MCU/IMU 仍走 3.3 V LDO' },
+          { name: '机架或洞洞板', spec: '四电机能固定相对位置；可先不装上 75 mm 架' },
+          { name: '油门 + 解锁', spec: '一只电位器做油门；拨码/按键/第二只电位器做 Arm' },
+          { name: 'Roll/Pitch 输入', spec: '再两只电位器，或接收机通道；本阶段用来看差速，不求飞' },
+        ],
+      },
+      {
+        label: '工具',
+        items: [
+          { name: '烙铁 / 焊锡', spec: 'MOS 和电机引线必须焊死，杜邦线扛不住振动' },
+          { name: '示波器（可选）', spec: '看 20 kHz PWM 和 Gate 波形；没有就先用听啸叫、摸轴' },
+        ],
+      },
+      {
+        label: '本阶段不要接',
+        items: [
+          { name: '螺旋桨', spec: '全部转向和混控试验在裸轴上做完再进入阶段 4' },
+        ],
+      },
+    ],
     pass: [
       '上电及复位后电机静止，必须显式解锁才转',
       'PWM 约 10–21 kHz，空心杯无明显啸叫',
@@ -373,6 +510,33 @@ export const STAGES: Stage[] = [
     hours: '约 1–2 周',
     goal: '串级 PID 让飞机自己把水平稳住，并完成第一次离地约 10 cm 的悬停。调参顺序错了会像「PID 坏了」。',
     deliverable: '单轴台上内环能阻尼、外环能回水平；解开后慢推油门，离地短暂平稳悬停。',
+    prep: [
+      {
+        label: '上一阶段必须已经有',
+        items: [
+          { name: 'Disarm 默认', spec: '上电电机静止；显式解锁才转' },
+          { name: '混控与转向', spec: '相邻反向；点 Roll/Pitch/Yaw 差速方向正确' },
+          { name: '姿态与陀螺', spec: '内环吃校准后的 ω，外环吃 Pitch/Roll，单位统一（建议度）' },
+        ],
+      },
+      {
+        label: '本阶段新拿上桌',
+        items: [
+          { name: '塑料桨（正反）', spec: '只此一次开始装桨；碳桨不用' },
+          { name: '单轴台材料', spec: '轴承、扎带、或左右拉线，让飞机只剩 Roll 或 Pitch 一个自由度' },
+          { name: '围栏', spec: '纸箱、护网或亚克力挡片；人在桨盘平面之外' },
+          { name: '护目镜', spec: '调参时桨可能打到台子碎片' },
+          { name: '满电 1S', spec: '另备一块；电压低时同一套 PID 会翻，不要低电硬调' },
+          { name: '配平胶带', spec: '重心尽量落在几何中心；热熔胶固定松动的线' },
+        ],
+      },
+      {
+        label: '输入仍用上一阶段的',
+        items: [
+          { name: '油门 / 解锁 / 横滚俯仰', spec: '摇杆中位 = 0°，满打限 ±30°；解锁开关手放得到' },
+        ],
+      },
+    ],
     pass: [
       '内环单独工作时，拨动机臂会抵抗并停住，而不是振荡发散',
       '加上外环后，机臂能自己回到水平',
@@ -447,6 +611,30 @@ export const STAGES: Stage[] = [
     hours: '余下 1–2 周',
     goal: '控制环不再被 printf 拖死；浏览器能看姿态、看曲线、改 PID 而不必每次重烧。',
     deliverable: '1 kHz 级内环仍在中断或高优先级循环里；Chrome 连上串口后，3D 姿态同步，参数可回写。',
+    prep: [
+      {
+        label: '上一阶段必须已经有',
+        items: [
+          { name: '能悬停的固件', spec: '护网里 10 cm 数秒；先保存一份「能飞」的 HEX/ELF 再改调度' },
+          { name: 'USB-TTL', spec: '地面站和飞控共用这根串口；调试时关掉占用它的串口助手' },
+        ],
+      },
+      {
+        label: '本阶段新拿上桌',
+        items: [
+          { name: 'Chromium 浏览器', spec: 'Chrome 或 Edge；Safari / Firefox 没有 Web Serial' },
+          { name: '一台能开静态页的环境', spec: '任意 live server，或直接本地 HTML；要 Three.js + 读串口' },
+          { name: '示波器或空闲 GPIO（可选）', spec: '翻转引脚测量 1 kHz 间隔，确认打印没有拖垮内环' },
+        ],
+      },
+      {
+        label: '软件',
+        items: [
+          { name: 'USART DMA 或环形缓冲', spec: '遥测 50 Hz 一行 ASCII；控制环里禁止阻塞 printf' },
+          { name: 'Three.js / Chart', spec: '先立方体跟姿态，再画设定 vs 实际；滑条回写 PITCH_KP=…' },
+        ],
+      },
+    ],
     pass: [
       '打开地面站后飞机仍能按阶段 4 的标准悬停（遥测不得拖垮控制）',
       'Pitch/Roll 曲线能同时看到设定与测量',

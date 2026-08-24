@@ -8,6 +8,7 @@ import {
 } from '@fortawesome/free-solid-svg-icons'
 import {
   STAGES,
+  type PrepGroup,
   type Stage,
   type StageBlock,
 } from './content'
@@ -88,6 +89,7 @@ export function DroneTrainingTool() {
       <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto">
         <article className="mx-auto max-w-3xl space-y-5 px-5 py-6 pb-10 md:px-6">
           <StageIntro stage={stage} />
+          <PrepList groups={stage.prep} />
           {stage.blocks.map((block, i) => (
             <StageBlockView key={`${stage.id}-${i}`} block={block} />
           ))}
@@ -122,6 +124,45 @@ function StageIntro({ stage }: { stage: Stage }) {
         <span className="text-subtle">本阶段交付：</span> {stage.deliverable}
       </p>
     </div>
+  )
+}
+
+function PrepList({ groups }: { groups: PrepGroup[] }) {
+  return (
+    <section className="rounded-2xl border border-border-subtle bg-surface/70 p-4 md:p-5">
+      <h3 className="text-[11px] font-medium uppercase tracking-[0.12em] text-subtle">
+        开做前准备好
+      </h3>
+      <div className="mt-3 space-y-3">
+        {groups.map((group) => {
+          const avoid = group.label.includes('不要')
+          return (
+            <div
+              key={group.label}
+              className={
+                avoid
+                  ? 'rounded-xl border border-danger/30 px-3 py-2.5'
+                  : 'rounded-xl border border-border-subtle/80 bg-background/30 px-3 py-2.5'
+              }
+            >
+              <p
+                className={`text-[11px] font-medium ${avoid ? 'text-danger' : 'text-foreground'}`}
+              >
+                {group.label}
+              </p>
+              <ul className="mt-2 space-y-1.5">
+                {group.items.map((item) => (
+                  <li key={item.name} className="grid gap-0.5 text-xs sm:grid-cols-[7.5rem_minmax(0,1fr)]">
+                    <span className="font-medium text-foreground">{item.name}</span>
+                    <span className="leading-relaxed text-muted">{item.spec}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )
+        })}
+      </div>
+    </section>
   )
 }
 
