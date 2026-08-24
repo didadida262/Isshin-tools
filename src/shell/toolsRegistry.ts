@@ -3,6 +3,7 @@ import type { IconDefinition } from '@fortawesome/fontawesome-svg-core'
 import {
   faChartLine,
   faClapperboard,
+  faHelicopter,
   faMusic,
   faScissors,
   faDownload,
@@ -12,6 +13,7 @@ import { GoldFactorsTool } from '@/tools/gold-factors'
 import { DouyinTrimEndTool } from '@/tools/douyin-trim-end'
 import { DouyinDownloaderTool } from '@/tools/douyin-downloader'
 import { BilibiliDownloaderTool } from '@/tools/bilibili-downloader'
+import { DroneTrainingTool } from '@/tools/drone-training'
 
 export interface ToolDefinition {
   id: string
@@ -56,6 +58,13 @@ export const toolsRegistry: ToolDefinition[] = [
     description: '关键词嗅探 · 预览播放 · 下载到本地',
     icon: faClapperboard,
     component: BilibiliDownloaderTool,
+  },
+  {
+    id: 'drone-training',
+    name: '无人机培训方案',
+    description: '从 0 焊到悬停 · 分阶段实操',
+    icon: faHelicopter,
+    component: DroneTrainingTool,
   },
 ]
 
