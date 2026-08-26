@@ -35,16 +35,27 @@ export function DroneTrainingTool() {
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
-      <header className="shrink-0 border-b border-border-subtle px-5 py-4 md:px-6">
-        <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-subtle">
-          从 0 到 1 · 手写最小闭环
-        </p>
-        <h1 className="mt-1 font-display text-xl font-semibold tracking-tight text-foreground">
-          搭一台能悬停的微型四轴
-        </h1>
-        <p className="mt-1.5 max-w-2xl text-xs leading-relaxed text-muted">
-          按阶段做，没过关不要跳。毕业标准：解锁后离地约 10 cm，平稳悬停数秒。
-        </p>
+      <header className="relative shrink-0 overflow-hidden border-b border-border-subtle px-5 py-4 md:px-6">
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-0 opacity-70"
+          style={{
+            background:
+              'radial-gradient(ellipse 50% 80% at 92% 20%, color-mix(in srgb, var(--accent) 14%, transparent), transparent)',
+          }}
+        />
+        <QuadSilhouette />
+        <div className="relative max-w-2xl pr-24 md:pr-36">
+          <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-subtle">
+            从 0 到 1 · 手写最小闭环
+          </p>
+          <h1 className="mt-1 font-display text-xl font-semibold tracking-tight text-foreground">
+            搭一台能悬停的微型四轴
+          </h1>
+          <p className="mt-1.5 text-xs leading-relaxed text-muted">
+            按阶段做，没过关不要跳。毕业标准：解锁后离地约 10 cm，平稳悬停数秒。
+          </p>
+        </div>
       </header>
 
       <nav
@@ -105,6 +116,69 @@ export function DroneTrainingTool() {
         </article>
       </div>
     </div>
+  )
+}
+
+function QuadSilhouette() {
+  const rotors = [
+    { cx: 32, cy: 32, dir: 1 },
+    { cx: 128, cy: 32, dir: -1 },
+    { cx: 128, cy: 128, dir: 1 },
+    { cx: 32, cy: 128, dir: -1 },
+  ] as const
+
+  return (
+    <svg
+      aria-hidden
+      viewBox="0 0 160 160"
+      className="pointer-events-none absolute -right-1 top-1/2 h-28 w-28 -translate-y-1/2 text-border md:right-5 md:h-36 md:w-36"
+    >
+      <line x1="32" y1="32" x2="128" y2="128" stroke="currentColor" strokeWidth="3" />
+      <line x1="128" y1="32" x2="32" y2="128" stroke="currentColor" strokeWidth="3" />
+      <rect
+        x="66"
+        y="66"
+        width="28"
+        height="28"
+        rx="6"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2.5"
+      />
+      {rotors.map((r) => (
+        <g key={`${r.cx}-${r.cy}`}>
+          <circle cx={r.cx} cy={r.cy} r="14" fill="none" stroke="currentColor" strokeWidth="2.5" />
+          <g>
+            <line
+              x1={r.cx - 11}
+              y1={r.cy}
+              x2={r.cx + 11}
+              y2={r.cy}
+              stroke="currentColor"
+              strokeWidth="1.5"
+              opacity="0.85"
+            />
+            <line
+              x1={r.cx}
+              y1={r.cy - 11}
+              x2={r.cx}
+              y2={r.cy + 11}
+              stroke="currentColor"
+              strokeWidth="1.5"
+              opacity="0.45"
+            />
+            <animateTransform
+              attributeName="transform"
+              type="rotate"
+              from={`0 ${r.cx} ${r.cy}`}
+              to={`${r.dir * 360} ${r.cx} ${r.cy}`}
+              dur="1.8s"
+              repeatCount="indefinite"
+            />
+          </g>
+        </g>
+      ))}
+    </svg>
   )
 }
 
