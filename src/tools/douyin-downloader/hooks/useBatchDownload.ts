@@ -65,7 +65,8 @@ function looksLikeRiskControl(message: string) {
 }
 
 interface UseBatchDownloadParams {
-  cookie: string
+  /** Resets batch state when the signed-in account changes. */
+  sessionKey: string
   kind: DouyinListKind
   items: DouyinAweme[]
   hasMore: boolean
@@ -75,7 +76,7 @@ interface UseBatchDownloadParams {
 }
 
 export function useBatchDownload({
-  cookie,
+  sessionKey,
   kind,
   items,
   hasMore,
@@ -151,7 +152,7 @@ export function useBatchDownload({
     setStopReason(null)
     dismissTask(TASK_IDS.douyinBatch)
     registerCancelHandler(TASK_IDS.douyinBatch, null)
-  }, [kind, cookie, clearAutoRetry])
+  }, [kind, sessionKey, clearAutoRetry])
 
   useEffect(() => () => clearAutoRetry(), [clearAutoRetry])
 
@@ -271,7 +272,6 @@ export function useBatchDownload({
 
           try {
             const result = await downloadAweme({
-              cookie,
               awemeId: pending.awemeId,
               playUrl: pending.playUrl,
               title: pending.desc || pending.awemeId,
@@ -402,7 +402,6 @@ export function useBatchDownload({
       finish('stopped', 'error', `批量下载异常中止：${message}`)
     }
   }, [
-    cookie,
     kind,
     loadMore,
     onDownloaded,

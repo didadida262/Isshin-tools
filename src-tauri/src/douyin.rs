@@ -1,10 +1,14 @@
-//! Douyin (抖音) cookie login + works/likes list + download.
+//! Douyin (抖音) session + works/likes list + download.
+//!
+//! The list/unlike endpoints are signed by the security SDK running in the
+//! bridge WebView (see [`crate::douyin_bridge`]); only the video/CDN transfers
+//! go out over plain HTTP from here.
+use crate::douyin_bridge;
 use reqwest::header::{HeaderMap, HeaderValue, ACCEPT, COOKIE, REFERER, USER_AGENT};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::sync::OnceLock;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Manager};
@@ -12,9 +16,8 @@ use tokio::fs;
 use tokio::io::AsyncWriteExt;
 use tokio::sync::Mutex;
 
-const USER_AGENT_VALUE: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/90.0.4430.212 Safari/537.36";
+const USER_AGENT_VALUE: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36";
 const REFERER_VALUE: &str = "https://www.douyin.com/";
-const AID: &str = "6383";
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -70,38 +73,7 @@ struct DownloadIndex {
     entries: HashMap<String, DouyinDownloadedEntry>,
 }
 
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct DouyinQrSession {
-    pub token: String,
-    pub qr_url: String,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct DouyinQrPollResult {
-    /// pending | scanned | confirmed | expired | error
-    pub status: String,
-    pub cookie: Option<String>,
-    pub message: Option<String>,
-}
-
-fn http_client() -> &'static reqwest::Client {
-    static CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
-    CLIENT.get_or_init(|| {
-        reqwest::Client::builder()
-            .user_agent(USER_AGENT_VALUE)
-            .http1_only()
-            .timeout(Duration::from_secs(45))
-            .connect_timeout(Duration::from_secs(15))
-            .pool_max_idle_per_host(0)
-            .cookie_store(false)
-            .build()
-            .expect("douyin http client")
-    })
-}
-
-/// 视频拉取不设总超时，避免长视频被 45s 掐断；仅保留连接超时。
+/// 视频拉取不设总超时，避免长视频被掐断；仅保留连接超时。
 fn download_client() -> &'static reqwest::Client {
     static CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
     CLIENT.get_or_init(|| {
@@ -121,241 +93,59 @@ fn index_lock() -> &'static Mutex<()> {
     LOCK.get_or_init(|| Mutex::new(()))
 }
 
-fn normalize_cookie(raw: &str) -> Result<String, String> {
-    let cookie = raw
-        .trim()
-        .trim_start_matches("Cookie:")
-        .trim_start_matches("cookie:")
-        .trim()
-        .to_string();
-    if cookie.is_empty() {
-        return Err("Cookie 为空".into());
-    }
-    let lower = cookie.to_ascii_lowercase();
-    if !(lower.contains("sessionid=") || lower.contains("sessionid_ss=")) {
-        return Err("Cookie 中缺少 sessionid，请从已登录的 douyin.com 复制完整 Cookie".into());
-    }
-    Ok(cookie)
-}
-
-fn cookie_value(cookie: &str, name: &str) -> Option<String> {
-    cookie.split(';').find_map(|part| {
-        let part = part.trim();
-        let (k, v) = part.split_once('=')?;
-        if !k.trim().eq_ignore_ascii_case(name) {
-            return None;
-        }
-        let v = v.trim();
-        if v.is_empty() {
-            None
-        } else {
-            Some(v.to_string())
-        }
-    })
-}
-
-/// Argus 会校验 uifid / fp；从 Cookie 回填到 query，再参与 a_bogus 签名。
-fn inject_web_security_params(params: &mut serde_json::Map<String, Value>, cookie: &str) {
-    if !params.contains_key("uifid") {
-        if let Some(v) = cookie_value(cookie, "UIFID") {
-            params.insert("uifid".into(), json!(v));
-        }
-    }
-    if let Some(fp) = cookie_value(cookie, "s_v_web_id") {
-        if !params.contains_key("verifyFp") {
-            params.insert("verifyFp".into(), json!(fp.clone()));
-        }
-        if !params.contains_key("fp") {
-            params.insert("fp".into(), json!(fp));
-        }
-    }
-    if !params.contains_key("msToken") {
-        if let Some(v) = cookie_value(cookie, "msToken") {
-            params.insert("msToken".into(), json!(v));
-        }
-    }
-}
-
-fn header_map(cookie: &str) -> Result<HeaderMap, String> {
+fn media_headers(cookie: Option<&str>) -> Result<HeaderMap, String> {
     let mut headers = HeaderMap::new();
     headers.insert(USER_AGENT, HeaderValue::from_static(USER_AGENT_VALUE));
     headers.insert(REFERER, HeaderValue::from_static(REFERER_VALUE));
-    headers.insert(ACCEPT, HeaderValue::from_static("application/json, text/plain, */*"));
-    headers.insert(
-        reqwest::header::ACCEPT_LANGUAGE,
-        HeaderValue::from_static("zh-CN,zh;q=0.9"),
-    );
-    headers.insert(
-        COOKIE,
-        HeaderValue::from_str(cookie).map_err(|e| format!("Cookie 非法: {e}"))?,
-    );
+    headers.insert(ACCEPT, HeaderValue::from_static("*/*"));
+    if let Some(cookie) = cookie {
+        headers.insert(
+            COOKIE,
+            HeaderValue::from_str(cookie).map_err(|e| format!("Cookie 非法: {e}"))?,
+        );
+    }
     Ok(headers)
 }
 
-fn abogus_script() -> Result<PathBuf, String> {
-    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .ok_or_else(|| "无法定位项目根目录".to_string())?
-        .join("scripts")
-        .join("douyin_abogus.py");
-    if !path.is_file() {
-        return Err(format!("缺少签名脚本: {}", path.display()));
-    }
-    Ok(path)
-}
-
-fn sign_a_bogus(params: &Value) -> Result<String, String> {
-    let script = abogus_script()?;
-    let payload = serde_json::to_string(params).map_err(|e| e.to_string())?;
-    let output = Command::new("python3")
-        .arg(&script)
-        .arg(&payload)
-        .output()
-        .map_err(|e| {
-            format!("无法执行 python3 签名脚本（请确认本机已安装 Python3）: {e}")
-        })?;
-    if !output.status.success() {
-        let err = String::from_utf8_lossy(&output.stderr);
-        return Err(format!("a_bogus 签名失败: {}", err.trim()));
-    }
-    let value = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    if value.is_empty() {
-        return Err("a_bogus 签名结果为空".into());
-    }
-    Ok(value)
-}
-
-fn common_params() -> serde_json::Map<String, Value> {
-    let mut m = serde_json::Map::new();
-    m.insert("device_platform".into(), json!("webapp"));
-    m.insert("aid".into(), json!(AID));
-    m.insert("channel".into(), json!("channel_pc_web"));
-    m.insert("pc_client_type".into(), json!("1"));
-    m.insert("version_code".into(), json!("170400"));
-    m.insert("version_name".into(), json!("17.4.0"));
-    m.insert("cookie_enabled".into(), json!("true"));
-    m.insert("screen_width".into(), json!("1920"));
-    m.insert("screen_height".into(), json!("1080"));
-    m.insert("browser_language".into(), json!("zh-CN"));
-    m.insert("browser_platform".into(), json!("Win32"));
-    m.insert("browser_name".into(), json!("Chrome"));
-    m.insert("browser_version".into(), json!("90.0.4430.212"));
-    m.insert("browser_online".into(), json!("true"));
-    m.insert("engine_name".into(), json!("Blink"));
-    m.insert("engine_version".into(), json!("90.0.4430.212"));
-    m.insert("os_name".into(), json!("Windows"));
-    m.insert("os_version".into(), json!("10"));
-    m.insert("cpu_core_num".into(), json!("8"));
-    m.insert("device_memory".into(), json!("8"));
-    m.insert("platform".into(), json!("PC"));
-    m.insert("downsample".into(), json!("1"));
-    m.insert("update_version_code".into(), json!("170400"));
-    m
-}
-
-fn build_query(params: &serde_json::Map<String, Value>) -> String {
-    let mut parts = Vec::new();
-    for (k, v) in params {
-        let s = match v {
-            Value::String(x) => x.clone(),
-            Value::Number(n) => n.to_string(),
-            Value::Bool(b) => b.to_string(),
-            _ => v.to_string().trim_matches('"').to_string(),
-        };
-        parts.push(format!(
-            "{}={}",
-            urlencoding_encode(k),
-            urlencoding_encode(&s)
-        ));
-    }
-    parts.join("&")
-}
-
-fn urlencoding_encode(s: &str) -> String {
-    let mut out = String::new();
-    for b in s.bytes() {
-        match b {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
-                out.push(b as char)
-            }
-            _ => out.push_str(&format!("%{b:02X}")),
-        }
-    }
-    out
-}
-
-async fn signed_get(cookie: &str, path: &str, mut params: serde_json::Map<String, Value>) -> Result<Value, String> {
-    inject_web_security_params(&mut params, cookie);
-    let bogus = sign_a_bogus(&Value::Object(params.clone()))?;
-    params.insert("a_bogus".into(), json!(bogus));
-    let url = format!("https://www.douyin.com{path}?{}", build_query(&params));
-    let resp = http_client()
-        .get(&url)
-        .headers(header_map(cookie)?)
-        .send()
-        .await
-        .map_err(|e| format!("网络错误: {e}"))?;
-    let status = resp.status();
-    let text = resp
-        .text()
-        .await
-        .map_err(|e| format!("读取响应失败: {e}"))?;
-    if text.trim().is_empty() {
-        return Err(format!(
-            "接口返回空响应 (HTTP {status})，可能 Cookie 失效或触发风控，请重新复制登录 Cookie"
-        ));
-    }
-    if !status.is_success() {
-        let snippet: String = text.chars().take(160).collect();
-        return Err(format!("HTTP {status} · {snippet}"));
-    }
-    serde_json::from_str(&text).map_err(|e| format!("JSON 解析失败: {e} · {}", text.chars().take(120).collect::<String>()))
-}
-
-async fn signed_post(
-    cookie: &str,
+/// Run a signed request through the bridge WebView and decode the JSON body.
+async fn bridge_json(
+    app: &AppHandle,
+    method: &str,
     path: &str,
-    mut query: serde_json::Map<String, Value>,
-    form: &[(String, String)],
+    extra: Value,
+    body: Option<&str>,
+    surface: douyin_bridge::Surface,
 ) -> Result<Value, String> {
-    inject_web_security_params(&mut query, cookie);
-    let bogus = sign_a_bogus(&Value::Object(query.clone()))?;
-    query.insert("a_bogus".into(), json!(bogus));
-    let url = format!("https://www.douyin.com{path}?{}", build_query(&query));
-    let body = form
-        .iter()
-        .map(|(k, v)| format!("{}={}", urlencoding_encode(k), urlencoding_encode(v)))
-        .collect::<Vec<_>>()
-        .join("&");
-
-    let mut headers = header_map(cookie)?;
-    headers.insert(
-        reqwest::header::CONTENT_TYPE,
-        HeaderValue::from_static("application/x-www-form-urlencoded; charset=UTF-8"),
-    );
-
-    let resp = http_client()
-        .post(&url)
-        .headers(headers)
-        .body(body)
-        .send()
-        .await
-        .map_err(|e| format!("网络错误: {e}"))?;
-    let status = resp.status();
-    let text = resp
-        .text()
-        .await
-        .map_err(|e| format!("读取响应失败: {e}"))?;
-    if text.trim().is_empty() {
+    let (status, text) = douyin_bridge::request(app, method, path, &extra, body, surface).await?;
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
         return Err(format!(
-            "接口返回空响应 (HTTP {status})，可能 Cookie 失效或触发风控，请重新复制登录 Cookie"
+            "接口返回空响应 (HTTP {status})，通常是抖音在软拦截。稍等片刻重试，或在抖音窗口里刷新一次"
         ));
     }
-    if !status.is_success() {
-        let snippet: String = text.chars().take(160).collect();
+    if !(200..300).contains(&status) {
+        let snippet: String = trimmed.chars().take(160).collect();
         return Err(format!("HTTP {status} · {snippet}"));
     }
-    serde_json::from_str(&text).map_err(|e| format!("JSON 解析失败: {e} · {}", text.chars().take(120).collect::<String>()))
+    serde_json::from_str(trimmed).map_err(|e| {
+        format!(
+            "JSON 解析失败: {e} · {}",
+            trimmed.chars().take(120).collect::<String>()
+        )
+    })
+}
+
+fn expect_ok_status(body: &Value, fallback: &str) -> Result<(), String> {
+    let code = body.get("status_code").and_then(|v| v.as_i64()).unwrap_or(0);
+    if code == 0 {
+        return Ok(());
+    }
+    let msg = body
+        .get("status_msg")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .unwrap_or(fallback);
+    Err(format!("{msg}（code={code}）"))
 }
 
 fn first_url(list: Option<&Vec<Value>>) -> String {
@@ -410,7 +200,11 @@ fn parse_aweme(item: &Value) -> Option<DouyinAweme> {
         video
             .pointer("/cover/url_list")
             .and_then(|v| v.as_array())
-            .or_else(|| video.pointer("/origin_cover/url_list").and_then(|v| v.as_array())),
+            .or_else(|| {
+                video
+                    .pointer("/origin_cover/url_list")
+                    .and_then(|v| v.as_array())
+            }),
     );
     let duration_ms = video
         .get("duration")
@@ -546,50 +340,58 @@ fn sanitize_filename(name: &str) -> String {
     }
 }
 
+/// Bring up the Douyin window so the user can sign in there.
 #[tauri::command]
-pub async fn douyin_login_cookie(cookie: String) -> Result<DouyinProfile, String> {
-    let cookie = normalize_cookie(&cookie)?;
-    // profile/self often works without a_bogus
-    let url = format!(
-        "https://www.douyin.com/aweme/v1/web/user/profile/self/?device_platform=webapp&aid={AID}&channel=channel_pc_web"
-    );
-    let resp = http_client()
-        .get(&url)
-        .headers(header_map(&cookie)?)
-        .send()
+pub async fn douyin_open_login(app: AppHandle) -> Result<(), String> {
+    douyin_bridge::ensure_ready(&app, douyin_bridge::Surface::Now)
         .await
-        .map_err(|e| format!("网络错误: {e}"))?;
-    let status = resp.status();
-    let body: Value = resp
-        .json()
-        .await
-        .map_err(|e| format!("解析资料失败: {e}"))?;
-    if !status.is_success() {
-        return Err(format!("HTTP {status}"));
-    }
-    let code = body.get("status_code").and_then(|v| v.as_i64()).unwrap_or(-1);
-    if code != 0 {
-        let msg = body
-            .get("status_msg")
-            .and_then(|v| v.as_str())
-            .unwrap_or("登录失败");
-        return Err(format!("{msg}（code={code}）"));
-    }
+        .map(|_| ())
+}
+
+#[tauri::command]
+pub fn douyin_hide_login(app: AppHandle) {
+    douyin_bridge::hide(&app);
+}
+
+#[tauri::command]
+pub async fn douyin_logout(app: AppHandle) -> Result<(), String> {
+    douyin_bridge::clear_session(&app)
+}
+
+/// Read the signed-in account from the bridge WebView session.
+#[tauri::command]
+pub async fn douyin_profile(app: AppHandle) -> Result<DouyinProfile, String> {
+    let body = bridge_json(
+        &app,
+        "GET",
+        "/aweme/v1/web/user/profile/self/",
+        json!({ "publish_video_strategy_type": "2" }),
+        None,
+        // Polled in the background while the tool is open; must stay silent.
+        douyin_bridge::Surface::Never,
+    )
+    .await?;
+    expect_ok_status(&body, "读取账号信息失败")?;
+
     let user = body
         .get("user")
-        .ok_or_else(|| "未返回用户信息，请确认 Cookie 有效".to_string())?;
+        .ok_or_else(|| "尚未登录抖音，请点击「打开抖音登录」".to_string())?;
     let sec_uid = user
         .get("sec_uid")
         .and_then(|v| v.as_str())
         .unwrap_or("")
         .to_string();
     if sec_uid.is_empty() {
-        return Err("用户 sec_uid 为空".into());
+        return Err("尚未登录抖音，请点击「打开抖音登录」".into());
     }
     let uid = user
         .get("uid")
         .and_then(|v| v.as_str().map(|s| s.to_string()))
-        .or_else(|| user.get("uid").and_then(|v| v.as_u64()).map(|n| n.to_string()))
+        .or_else(|| {
+            user.get("uid")
+                .and_then(|v| v.as_u64())
+                .map(|n| n.to_string())
+        })
         .unwrap_or_default();
     let nickname = user
         .get("nickname")
@@ -618,125 +420,12 @@ pub async fn douyin_login_cookie(cookie: String) -> Result<DouyinProfile, String
 }
 
 #[tauri::command]
-pub async fn douyin_qr_start() -> Result<DouyinQrSession, String> {
-    // Best-effort Douyin web QR. May be risk-controlled on some networks.
-    let url = format!(
-        "https://login.douyin.com/passport/web/get_qrcode/?next=https%3A%2F%2Fwww.douyin.com&aid={AID}&need_logo=false&service=https%3A%2F%2Fwww.douyin.com"
-    );
-    let resp = http_client()
-        .get(url)
-        .header(USER_AGENT, USER_AGENT_VALUE)
-        .header(REFERER, REFERER_VALUE)
-        .send()
-        .await
-        .map_err(|e| format!("获取二维码失败: {e}"))?;
-    let body: Value = resp
-        .json()
-        .await
-        .map_err(|e| format!("解析二维码响应失败: {e}"))?;
-    if body.get("message").and_then(|v| v.as_str()) == Some("error") {
-        let desc = body
-            .pointer("/data/description")
-            .and_then(|v| v.as_str())
-            .unwrap_or("扫码入口被风控拦截，请改用 Cookie 登录");
-        return Err(desc.to_string());
-    }
-    let token = body
-        .pointer("/data/token")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| "二维码 token 缺失，请改用 Cookie 登录".to_string())?
-        .to_string();
-    let qr_url = body
-        .pointer("/data/qrcode_index_url")
-        .or_else(|| body.pointer("/data/qrcode"))
-        .and_then(|v| v.as_str())
-        .map(|s| s.to_string())
-        .unwrap_or_else(|| format!("https://www.douyin.com/?qr={}", urlencoding_encode(&token)));
-    Ok(DouyinQrSession { token, qr_url })
-}
-
-#[tauri::command]
-pub async fn douyin_qr_poll(token: String) -> Result<DouyinQrPollResult, String> {
-    let token = token.trim();
-    if token.is_empty() {
-        return Err("token 为空".into());
-    }
-    let url = format!(
-        "https://login.douyin.com/passport/web/check_qrconnect/?token={}&aid={AID}&next=https%3A%2F%2Fwww.douyin.com",
-        urlencoding_encode(token)
-    );
-    let resp = http_client()
-        .get(url)
-        .header(USER_AGENT, USER_AGENT_VALUE)
-        .header(REFERER, REFERER_VALUE)
-        .send()
-        .await
-        .map_err(|e| format!("轮询扫码状态失败: {e}"))?;
-    let set_cookies: Vec<String> = resp
-        .headers()
-        .get_all(reqwest::header::SET_COOKIE)
-        .iter()
-        .filter_map(|v| v.to_str().ok().map(|s| s.to_string()))
-        .collect();
-    let body: Value = resp
-        .json()
-        .await
-        .map_err(|e| format!("解析扫码状态失败: {e}"))?;
-
-    let error_code = body
-        .pointer("/data/error_code")
-        .and_then(|v| v.as_i64())
-        .or_else(|| body.pointer("/data/error_code").and_then(|v| v.as_u64()).map(|n| n as i64))
-        .unwrap_or(0);
-    // Common Douyin QR statuses vary; map loosely.
-    let status = match error_code {
-        0 => {
-            if set_cookies.iter().any(|c| c.contains("sessionid=")) {
-                "confirmed"
-            } else {
-                "pending"
-            }
-        }
-        2046 => "scanned",
-        2047 => "confirmed",
-        2048 | 2049 => "expired",
-        _ => "pending",
-    };
-
-    let cookie = if status == "confirmed" {
-        let joined = set_cookies
-            .iter()
-            .filter_map(|c| c.split(';').next().map(|s| s.trim().to_string()))
-            .filter(|s| !s.is_empty())
-            .collect::<Vec<_>>()
-            .join("; ");
-        if joined.contains("sessionid=") {
-            Some(joined)
-        } else {
-            None
-        }
-    } else {
-        None
-    };
-
-    Ok(DouyinQrPollResult {
-        status: status.into(),
-        cookie,
-        message: body
-            .pointer("/data/description")
-            .and_then(|v| v.as_str())
-            .map(|s| s.to_string()),
-    })
-}
-
-#[tauri::command]
 pub async fn douyin_list_aweme(
-    cookie: String,
+    app: AppHandle,
     sec_uid: String,
     kind: String,
     cursor: Option<u64>,
 ) -> Result<DouyinListResult, String> {
-    let cookie = normalize_cookie(&cookie)?;
     let sec_uid = sec_uid.trim();
     if sec_uid.is_empty() {
         return Err("sec_uid 为空".into());
@@ -748,22 +437,18 @@ pub async fn douyin_list_aweme(
         _ => return Err("kind 仅支持 post / favorite".into()),
     };
 
-    let mut params = common_params();
-    params.insert("sec_user_id".into(), json!(sec_uid));
-    params.insert("count".into(), json!("20"));
-    params.insert("max_cursor".into(), json!(cursor.unwrap_or(0).to_string()));
-    params.insert("min_cursor".into(), json!("0"));
-    params.insert("publish_video_strategy_type".into(), json!("2"));
+    let extra = json!({
+        "sec_user_id": sec_uid,
+        "count": "18",
+        "max_cursor": cursor.unwrap_or(0).to_string(),
+        "min_cursor": "0",
+        "whale_cut_token": "",
+        "cut_version": "1",
+        "publish_video_strategy_type": "2",
+    });
 
-    let body = signed_get(&cookie, path, params).await?;
-    let status_code = body.get("status_code").and_then(|v| v.as_i64()).unwrap_or(0);
-    if status_code != 0 {
-        let msg = body
-            .get("status_msg")
-            .and_then(|v| v.as_str())
-            .unwrap_or("拉取列表失败");
-        return Err(format!("{msg}（code={status_code}）"));
-    }
+    let body = bridge_json(&app, "GET", path, extra, None, douyin_bridge::Surface::OnStall).await?;
+    expect_ok_status(&body, "拉取列表失败")?;
 
     let items = body
         .get("aweme_list")
@@ -798,37 +483,23 @@ pub async fn douyin_list_aweme(
 
 /// 取消喜欢（等价于网页端熄灭红色爱心）。`type=0` 取消，`type=1` 点赞。
 #[tauri::command]
-pub async fn douyin_unlike(cookie: String, aweme_id: String) -> Result<(), String> {
-    let cookie = normalize_cookie(&cookie)?;
+pub async fn douyin_unlike(app: AppHandle, aweme_id: String) -> Result<(), String> {
     let aweme_id = aweme_id.trim().to_string();
     if aweme_id.is_empty() {
         return Err("aweme_id 不能为空".into());
     }
 
-    let query = common_params();
-    let form = vec![
-        ("aweme_id".into(), aweme_id),
-        ("item_type".into(), "0".into()),
-        ("type".into(), "0".into()),
-    ];
-
-    let body = signed_post(
-        &cookie,
+    let form = format!("aweme_id={aweme_id}&item_type=0&type=0");
+    let body = bridge_json(
+        &app,
+        "POST",
         "/aweme/v1/web/commit/item/digg/",
-        query,
-        &form,
+        json!({}),
+        Some(&form),
+        douyin_bridge::Surface::OnStall,
     )
     .await?;
-
-    let status_code = body.get("status_code").and_then(|v| v.as_i64()).unwrap_or(-1);
-    if status_code != 0 {
-        let msg = body
-            .get("status_msg")
-            .and_then(|v| v.as_str())
-            .unwrap_or("取消喜欢失败");
-        return Err(format!("{msg}（code={status_code}）"));
-    }
-    Ok(())
+    expect_ok_status(&body, "取消喜欢失败")
 }
 
 #[tauri::command]
@@ -860,11 +531,9 @@ pub async fn douyin_list_downloaded(app: AppHandle) -> Result<Vec<DouyinDownload
 #[tauri::command]
 pub async fn douyin_cache_preview(
     app: AppHandle,
-    cookie: String,
     aweme_id: String,
     play_url: String,
 ) -> Result<String, String> {
-    let cookie = normalize_cookie(&cookie)?;
     let aweme_id = aweme_id.trim().to_string();
     let play_url = play_url.trim().to_string();
     if aweme_id.is_empty() || play_url.is_empty() {
@@ -880,9 +549,10 @@ pub async fn douyin_cache_preview(
         return Ok(output.to_string_lossy().to_string());
     }
 
+    let cookie = douyin_bridge::session_cookie(&app);
     let resp = download_client()
         .get(&play_url)
-        .headers(header_map(&cookie)?)
+        .headers(media_headers(cookie.as_deref())?)
         .send()
         .await
         .map_err(|e| format!("预览拉取失败: {e}"))?;
@@ -902,13 +572,11 @@ pub async fn douyin_cache_preview(
 #[tauri::command]
 pub async fn douyin_download(
     app: AppHandle,
-    cookie: String,
     aweme_id: String,
     play_url: String,
     title: Option<String>,
     kind: Option<String>,
 ) -> Result<DouyinDownloadResult, String> {
-    let cookie = normalize_cookie(&cookie)?;
     let aweme_id = aweme_id.trim().to_string();
     let play_url = play_url.trim().to_string();
     if aweme_id.is_empty() || play_url.is_empty() {
@@ -931,10 +599,10 @@ pub async fn douyin_download(
     );
     let output = out_dir.join(format!("{aweme_id}_{stem}.mp4"));
 
+    let cookie = douyin_bridge::session_cookie(&app);
     let resp = download_client()
         .get(&play_url)
-        .headers(header_map(&cookie)?)
-        .header(REFERER, HeaderValue::from_static("https://www.douyin.com/"))
+        .headers(media_headers(cookie.as_deref())?)
         .send()
         .await
         .map_err(|e| format!("下载失败: {e}"))?;

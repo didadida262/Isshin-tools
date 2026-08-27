@@ -1,6 +1,7 @@
 export type AuthStatus =
   | 'anonymous'
-  | 'logging-in'
+  | 'checking'
+  | 'awaiting-login'
   | 'authenticated'
   | 'auth-error'
 
@@ -41,15 +42,4 @@ export interface DouyinDownloadedEntry {
   path: string
   title: string
   downloadedAt: number
-}
-
-export interface DouyinQrSession {
-  token: string
-  qrUrl: string
-}
-
-export interface DouyinQrPollResult {
-  status: string
-  cookie: string | null
-  message: string | null
 }

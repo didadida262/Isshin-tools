@@ -24,11 +24,7 @@ export type LoadMoreOutcome =
   | { status: 'error'; message: string }
   | { status: 'noop'; reason: 'no-more' | 'busy' | 'missing-auth' }
 
-export function useAwemeList(
-  cookie: string | null,
-  secUid: string | null,
-  kind: DouyinListKind,
-) {
+export function useAwemeList(secUid: string | null, kind: DouyinListKind) {
   const [byKind, setByKind] = useState<Record<DouyinListKind, KindListState>>({
     favorite: emptyState(),
     post: emptyState(),
@@ -42,12 +38,10 @@ export function useAwemeList(
 
   const state = byKind[kind]
   // 未加载完成前视为 loading，避免 tab 切换首帧闪「暂无内容」
-  const loading =
-    loadingKind === kind ||
-    (!!cookie && !!secUid && !state.loaded && !state.error)
+  const loading = loadingKind === kind || (!!secUid && !state.loaded && !state.error)
 
   const reload = useCallback(async (options?: { clear?: boolean }) => {
-    if (!cookie || !secUid) {
+    if (!secUid) {
       const empty = { favorite: emptyState(), post: emptyState() }
       byKindRef.current = empty
       setByKind(empty)
@@ -67,7 +61,7 @@ export function useAwemeList(
     }
 
     try {
-      const result = await listAweme(cookie, secUid, target, 0)
+      const result = await listAweme(secUid, target, 0)
       if (seq !== reqSeq.current) return null
       const nextState: KindListState = {
         items: result.items,
@@ -99,10 +93,10 @@ export function useAwemeList(
     } finally {
       if (seq === reqSeq.current) setLoadingKind(null)
     }
-  }, [cookie, secUid, kind])
+  }, [secUid, kind])
 
   const loadMore = useCallback(async (): Promise<LoadMoreOutcome> => {
-    if (!cookie || !secUid) return { status: 'noop', reason: 'missing-auth' }
+    if (!secUid) return { status: 'noop', reason: 'missing-auth' }
 
     const target = kind
     const current = byKindRef.current[target]
@@ -114,7 +108,7 @@ export function useAwemeList(
     setLoadingKind(target)
 
     try {
-      const result = await listAweme(cookie, secUid, target, cursor)
+      const result = await listAweme(secUid, target, cursor)
       if (seq !== reqSeq.current) {
         return { status: 'noop', reason: 'busy' }
       }
@@ -178,10 +172,10 @@ export function useAwemeList(
     } finally {
       if (seq === reqSeq.current) setLoadingKind(null)
     }
-  }, [cookie, secUid, kind])
+  }, [secUid, kind])
 
   useEffect(() => {
-    if (!cookie || !secUid) {
+    if (!secUid) {
       setByKind({ favorite: emptyState(), post: emptyState() })
       setLoadingKind(null)
       return
@@ -189,7 +183,7 @@ export function useAwemeList(
     // 已缓存的 tab 直接展示，避免串数据 / 重复请求
     if (byKindRef.current[kind].loaded) return
     void reload()
-  }, [cookie, secUid, kind, reload])
+  }, [secUid, kind, reload])
 
   return {
     items: state.items,

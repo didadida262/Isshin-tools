@@ -1,5 +1,6 @@
 mod bilibili;
 mod douyin;
+mod douyin_bridge;
 mod http_fetch;
 mod netease;
 mod video_trim;
@@ -31,6 +32,7 @@ pub fn run() {
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_store::Builder::default().build())
         .plugin(tauri_plugin_opener::init())
+        .manage(douyin_bridge::DouyinBridge::default())
         .setup(|app| {
             if cfg!(debug_assertions) {
                 app.handle().plugin(
@@ -53,9 +55,10 @@ pub fn run() {
             bilibili::bilibili_sync_downloaded,
             bilibili::bilibili_delete_downloaded,
             bilibili::bilibili_apply_track_seq,
-            douyin::douyin_login_cookie,
-            douyin::douyin_qr_start,
-            douyin::douyin_qr_poll,
+            douyin::douyin_open_login,
+            douyin::douyin_hide_login,
+            douyin::douyin_logout,
+            douyin::douyin_profile,
             douyin::douyin_list_aweme,
             douyin::douyin_unlike,
             douyin::douyin_download,

@@ -2,9 +2,10 @@
 identifier = "allow-douyin"
 description = "Allow Douyin login, works/likes listing, unlike, and video download"
 commands.allow = [
-  "douyin_login_cookie",
-  "douyin_qr_start",
-  "douyin_qr_poll",
+  "douyin_open_login",
+  "douyin_hide_login",
+  "douyin_logout",
+  "douyin_profile",
   "douyin_list_aweme",
   "douyin_unlike",
   "douyin_download",

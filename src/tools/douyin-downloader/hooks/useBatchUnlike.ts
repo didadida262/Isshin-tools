@@ -54,7 +54,8 @@ function looksLikeRiskControl(message: string) {
 }
 
 interface UseBatchUnlikeParams {
-  cookie: string
+  /** Resets batch state when the signed-in account changes. */
+  sessionKey: string
   items: DouyinAweme[]
   hasMore: boolean
   loadMore: () => Promise<LoadMoreOutcome>
@@ -66,7 +67,7 @@ interface UseBatchUnlikeParams {
 }
 
 export function useBatchUnlike({
-  cookie,
+  sessionKey,
   items,
   hasMore,
   loadMore,
@@ -131,7 +132,7 @@ export function useBatchUnlike({
     setStatusText(null)
     setStopMessage(null)
     setStopReason(null)
-  }, [cookie, clearAutoRetry])
+  }, [sessionKey, clearAutoRetry])
 
   useEffect(() => () => clearAutoRetry(), [clearAutoRetry])
 
@@ -212,7 +213,7 @@ export function useBatchUnlike({
           setStatusText(`正在取消喜欢：${pending.desc || pending.awemeId}`)
 
           try {
-            await unlikeAweme(cookie, pending.awemeId)
+            await unlikeAweme(pending.awemeId)
             if (cancelRef.current) break
             const refreshed = await onRefreshAfterUnlike()
             if (cancelRef.current) break
@@ -332,7 +333,7 @@ export function useBatchUnlike({
       const message = e instanceof Error ? e.message : String(e)
       finish('stopped', 'error', `批量取消喜欢异常中止：${message}`)
     }
-  }, [cookie, loadMore, onRefreshAfterUnlike, clearAutoRetry, hasRemainingWork, scheduleAutoRetry])
+  }, [loadMore, onRefreshAfterUnlike, clearAutoRetry, hasRemainingWork, scheduleAutoRetry])
 
   startRef.current = start
 

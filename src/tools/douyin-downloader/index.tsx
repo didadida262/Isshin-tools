@@ -14,7 +14,7 @@ export function DouyinDownloaderTool() {
   const auth = useDouyinAuth()
   const [kind, setKind] = useState<DouyinListKind>('favorite')
   const [batchActive, setBatchActive] = useState(false)
-  const list = useAwemeList(auth.cookie, auth.profile?.secUid ?? null, kind)
+  const list = useAwemeList(auth.sessionKey, kind)
   const downloaded = useDownloadedAweme()
   const downloadedById = useDownloadedMapForKind(downloaded.byKey, kind)
 
@@ -34,14 +34,12 @@ export function DouyinDownloaderTool() {
           status={auth.status}
           profile={auth.profile}
           error={auth.error}
-          qrSession={auth.qrSession}
-          onStartQr={() => void auth.startQrLogin()}
-          onCookieLogin={(c) => void auth.loginWithCookie(c)}
+          onOpenLogin={() => void auth.openLogin()}
           onLogout={() => void auth.logout()}
         />
       </div>
 
-      {auth.status === 'authenticated' && auth.cookie ? (
+      {auth.status === 'authenticated' && auth.sessionKey ? (
         <>
           <div className="relative flex shrink-0 gap-1 self-start rounded-xl border border-border bg-background p-0.5 text-xs">
             <KindTab
@@ -71,7 +69,7 @@ export function DouyinDownloaderTool() {
               >
                 <AwemePanel
                   kind={kind}
-                  cookie={auth.cookie}
+                  sessionKey={auth.sessionKey}
                   items={list.items}
                   loading={list.loading}
                   error={list.error}

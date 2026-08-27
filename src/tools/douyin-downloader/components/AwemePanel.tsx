@@ -29,7 +29,7 @@ import type { DouyinAweme, DouyinDownloadedEntry, DouyinListKind } from '../type
 
 interface AwemePanelProps {
   kind: DouyinListKind
-  cookie: string
+  sessionKey: string
   items: DouyinAweme[]
   loading: boolean
   error: string | null
@@ -61,7 +61,7 @@ function formatCount(n: number) {
 
 export function AwemePanel({
   kind,
-  cookie,
+  sessionKey,
   items,
   loading,
   error,
@@ -101,7 +101,7 @@ export function AwemePanel({
   }, [])
 
   const batch = useBatchDownload({
-    cookie,
+    sessionKey,
     kind,
     items,
     hasMore,
@@ -111,7 +111,7 @@ export function AwemePanel({
   })
 
   const batchUnlike = useBatchUnlike({
-    cookie,
+    sessionKey,
     items,
     hasMore,
     loadMore: batchLoadMore,
@@ -153,7 +153,6 @@ export function AwemePanel({
     void (async () => {
       try {
         const path = await cachePreview({
-          cookie,
           awemeId: selected.awemeId,
           playUrl: selected.playUrl,
         })
@@ -174,7 +173,7 @@ export function AwemePanel({
       cancelled = true
       if (objectUrl) URL.revokeObjectURL(objectUrl)
     }
-  }, [selected, cookie])
+  }, [selected])
 
   useEffect(() => {
     if (!selected) return
@@ -205,7 +204,6 @@ export function AwemePanel({
     })
     try {
       const result = await downloadAweme({
-        cookie,
         awemeId: item.awemeId,
         playUrl: item.playUrl,
         title,
@@ -252,7 +250,7 @@ export function AwemePanel({
     if (!ok) return
     setUnlikingId(item.awemeId)
     try {
-      await unlikeAweme(cookie, item.awemeId)
+      await unlikeAweme(item.awemeId)
       await onRefreshAfterUnlike()
       if (selected?.awemeId === item.awemeId) setSelected(null)
       toast('已取消喜欢', 'success')
