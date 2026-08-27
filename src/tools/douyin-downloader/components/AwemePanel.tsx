@@ -322,7 +322,10 @@ export function AwemePanel({
     return () => observer.disconnect()
   }, [hasMore, loading, items.length, anyBatchActive])
 
-  const pendingCount = items.filter((item) => !downloadedById.has(item.awemeId)).length
+  const pendingCount = items.filter(
+    (item) =>
+      !downloadedById.has(item.awemeId) && !batch.skippedById.has(item.awemeId),
+  ).length
   const busySingle = downloadingId !== null || unlikingId !== null
   const controlsLocked = anyBatchActive || busySingle
 
@@ -457,6 +460,12 @@ export function AwemePanel({
               <span className="text-subtle">
                 {' '}
                 · 成功 {batch.successCount}
+                {batch.skipCount > 0 && (
+                  <>
+                    {' · '}
+                    跳过 {batch.skipCount}
+                  </>
+                )}
                 {' · '}
                 加载更多 {batch.loadMoreUsed} 次
               </span>
@@ -573,6 +582,7 @@ export function AwemePanel({
               <tbody>
                 {items.map((item, index) => {
                   const downloaded = downloadedById.get(item.awemeId)
+                  const skipped = batch.skippedById.get(item.awemeId)
                   const busyDownload =
                     downloadingId === item.awemeId || batch.activeId === item.awemeId
                   const busyUnlike =
@@ -671,23 +681,38 @@ export function AwemePanel({
                               </button>
                             </>
                           ) : (
-                            <button
-                              type="button"
-                              disabled={controlsLocked}
-                              onClick={() => void handleDownload(item)}
-                              aria-busy={busyDownload}
-                              className={`inline-flex h-7 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg px-2.5 text-[11px] transition-colors duration-200 ${
-                                busyDownload
-                                  ? 'cursor-wait text-foreground'
-                                  : 'text-muted hover:bg-background hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40'
-                              }`}
-                            >
-                              <FontAwesomeIcon
-                                icon={busyDownload ? faSpinner : faSatelliteDish}
-                                className={`h-3 w-3 ${busyDownload ? 'animate-spin' : ''}`}
-                              />
-                              {busyDownload ? '下载中' : '下载'}
-                            </button>
+                            <>
+                              {skipped && (
+                                <span
+                                  className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap px-1.5 text-[11px] text-danger/80"
+                                  title={skipped}
+                                >
+                                  <FontAwesomeIcon
+                                    icon={faTriangleExclamation}
+                                    className="h-3 w-3"
+                                  />
+                                  已跳过
+                                </span>
+                              )}
+                              <button
+                                type="button"
+                                disabled={controlsLocked}
+                                onClick={() => void handleDownload(item)}
+                                aria-busy={busyDownload}
+                                className={`inline-flex h-7 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg px-2.5 text-[11px] transition-colors duration-200 ${
+                                  busyDownload
+                                    ? 'cursor-wait text-foreground'
+                                    : 'text-muted hover:bg-background hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40'
+                                }`}
+                                title={skipped ? '手动重试下载' : undefined}
+                              >
+                                <FontAwesomeIcon
+                                  icon={busyDownload ? faSpinner : faSatelliteDish}
+                                  className={`h-3 w-3 ${busyDownload ? 'animate-spin' : ''}`}
+                                />
+                                {busyDownload ? '下载中' : skipped ? '重试' : '下载'}
+                              </button>
+                            </>
                           )}
                         </div>
                       </td>

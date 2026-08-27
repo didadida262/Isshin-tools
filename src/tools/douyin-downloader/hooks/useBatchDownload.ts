@@ -64,6 +64,16 @@ function looksLikeRiskControl(message: string) {
   )
 }
 
+/** CDN / 资源永久失效：批量时应跳过，勿整批停住重试。 */
+function looksLikeNotFound(message: string) {
+  const text = message.toLowerCase()
+  return (
+    /\b404\b/.test(text) ||
+    text.includes('not found') ||
+    text.includes('不存在')
+  )
+}
+
 interface UseBatchDownloadParams {
   /** Resets batch state when the signed-in account changes. */
   sessionKey: string
@@ -88,6 +98,11 @@ export function useBatchDownload({
   const [activeId, setActiveId] = useState<string | null>(null)
   const [loadMoreUsed, setLoadMoreUsed] = useState(0)
   const [successCount, setSuccessCount] = useState(0)
+  const [skipCount, setSkipCount] = useState(0)
+  /** awemeId → 跳过原因（如 404），会话内保留，避免批量反复撞同一失效资源 */
+  const [skippedById, setSkippedById] = useState<Map<string, string>>(
+    () => new Map(),
+  )
   const [statusText, setStatusText] = useState<string | null>(null)
   const [stopMessage, setStopMessage] = useState<string | null>(null)
   const [stopReason, setStopReason] = useState<BatchStopReason | null>(null)
@@ -97,12 +112,14 @@ export function useBatchDownload({
   const itemsRef = useRef(items)
   const hasMoreRef = useRef(hasMore)
   const downloadedRef = useRef(downloadedById)
+  const skippedRef = useRef(skippedById)
   const autoRetryTimerRef = useRef<number | null>(null)
   const startRef = useRef<() => Promise<void>>(async () => {})
 
   itemsRef.current = items
   hasMoreRef.current = hasMore
   downloadedRef.current = downloadedById
+  skippedRef.current = skippedById
 
   const isActive =
     phase === 'downloading' ||
@@ -118,12 +135,16 @@ export function useBatchDownload({
     }
   }, [])
 
-  const hasRemainingWork = useCallback(() => {
-    const pending = itemsRef.current.some(
-      (item) => !downloadedRef.current.has(item.awemeId),
+  const isPendingItem = useCallback((awemeId: string) => {
+    return (
+      !downloadedRef.current.has(awemeId) && !skippedRef.current.has(awemeId)
     )
-    return pending || hasMoreRef.current
   }, [])
+
+  const hasRemainingWork = useCallback(() => {
+    const pending = itemsRef.current.some((item) => isPendingItem(item.awemeId))
+    return pending || hasMoreRef.current
+  }, [isPendingItem])
 
   const scheduleAutoRetry = useCallback(() => {
     if (!hasRemainingWork()) return
@@ -147,6 +168,8 @@ export function useBatchDownload({
     setActiveId(null)
     setLoadMoreUsed(0)
     setSuccessCount(0)
+    setSkipCount(0)
+    setSkippedById(new Map())
     setStatusText(null)
     setStopMessage(null)
     setStopReason(null)
@@ -235,6 +258,7 @@ export function useBatchDownload({
     setStatusText('准备批量下载…')
 
     let localSuccess = 0
+    let localSkip = 0
     let localLoadMore = 0
     const folder = kind === 'favorite' ? 'likes' : 'works'
     const kindLabel = kind === 'favorite' ? '喜欢' : '作品'
@@ -259,11 +283,21 @@ export function useBatchDownload({
       setStatusText(null)
     }
 
+    const completeMessage = () => {
+      const parts: string[] = []
+      if (localSuccess > 0) parts.push(`成功下载 ${localSuccess} 个`)
+      if (localSkip > 0) parts.push(`跳过 404 ${localSkip} 个`)
+      if (parts.length === 0) {
+        return skippedRef.current.size > 0
+          ? '当前列表已全部处理（含已跳过），且没有更多内容'
+          : '当前列表已全部下载，且没有更多内容'
+      }
+      return `本轮完成，${parts.join('，')}`
+    }
+
     try {
       while (!cancelRef.current) {
-        const pending = itemsRef.current.find(
-          (item) => !downloadedRef.current.has(item.awemeId),
-        )
+        const pending = itemsRef.current.find((item) => isPendingItem(item.awemeId))
 
         if (pending) {
           setPhase('downloading')
@@ -295,6 +329,26 @@ export function useBatchDownload({
             setSuccessCount(localSuccess)
           } catch (e) {
             const message = e instanceof Error ? e.message : String(e)
+            if (looksLikeNotFound(message)) {
+              const reason = '资源 404'
+              const nextSkipped = new Map(skippedRef.current).set(
+                pending.awemeId,
+                reason,
+              )
+              skippedRef.current = nextSkipped
+              setSkippedById(nextSkipped)
+              localSkip += 1
+              setSkipCount(nextSkipped.size)
+              setStatusText(
+                `资源 404，已跳过：${pending.desc || pending.awemeId}`,
+              )
+              if (cancelRef.current) break
+              const delay = randomDelayMs()
+              setPhase('waiting')
+              setStatusText(`已跳过 404，间隔等待 ${(delay / 1000).toFixed(1)}s…`)
+              await sleep(delay, () => cancelRef.current)
+              continue
+            }
             const risk = looksLikeRiskControl(message)
             finish(
               'stopped',
@@ -316,13 +370,7 @@ export function useBatchDownload({
         }
 
         if (!hasMoreRef.current) {
-          finish(
-            'done',
-            'complete',
-            localSuccess > 0
-              ? `本轮完成，成功下载 ${localSuccess} 个`
-              : '当前列表已全部下载，且没有更多内容',
-          )
+          finish('done', 'complete', completeMessage())
           return
         }
 
@@ -348,8 +396,8 @@ export function useBatchDownload({
           finish(
             'done',
             'complete',
-            localSuccess > 0
-              ? `本轮完成，成功下载 ${localSuccess} 个`
+            localSuccess > 0 || localSkip > 0
+              ? completeMessage()
               : '没有更多内容可加载',
           )
           return
@@ -394,7 +442,9 @@ export function useBatchDownload({
         finish(
           'paused',
           'user',
-          `已手动停止（本轮成功 ${localSuccess} 个，加载更多 ${localLoadMore} 次）`,
+          `已手动停止（本轮成功 ${localSuccess} 个${
+            localSkip > 0 ? `，跳过 404 ${localSkip} 个` : ''
+          }，加载更多 ${localLoadMore} 次）`,
         )
       }
     } catch (e) {
@@ -408,6 +458,7 @@ export function useBatchDownload({
     clearAutoRetry,
     hasRemainingWork,
     scheduleAutoRetry,
+    isPendingItem,
   ])
 
   startRef.current = start
@@ -418,6 +469,8 @@ export function useBatchDownload({
     isActive,
     loadMoreUsed,
     successCount,
+    skipCount,
+    skippedById,
     statusText,
     stopMessage,
     stopReason,
