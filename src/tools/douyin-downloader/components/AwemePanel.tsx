@@ -357,7 +357,7 @@ export function AwemePanel({
       return
     }
     const ok = window.confirm(
-      '确定批量取消喜欢？将按 1–10 秒随机间隔逐条取消，并持续加载直到没有更多内容。此操作会同步到抖音账号。',
+      '确定批量取消喜欢？将按 1–3 秒随机间隔逐条取消，并持续加载直到没有更多内容。此操作会同步到抖音账号。',
     )
     if (!ok) return
     batch.clearStopBanner()

@@ -17,7 +17,7 @@ export type UnlikePhase =
 export type UnlikeStopReason = 'user' | 'risk' | 'error' | 'complete'
 
 const DELAY_MIN_MS = 1000
-const DELAY_MAX_MS = 10_000
+const DELAY_MAX_MS = 3_000
 
 function randomDelayMs() {
   return DELAY_MIN_MS + Math.floor(Math.random() * (DELAY_MAX_MS - DELAY_MIN_MS + 1))
