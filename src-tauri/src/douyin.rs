@@ -561,6 +561,48 @@ fn sanitize_filename(name: &str) -> String {
     }
 }
 
+fn seq_width(total: usize) -> usize {
+    total.max(1).to_string().len().max(4)
+}
+
+fn format_seq(index: u32, total: usize) -> String {
+    format!("{:0width$}", index, width = seq_width(total))
+}
+
+/// `{awemeId}_{stem}.mp4` or `{seq}_{awemeId}_{stem}.mp4`
+fn media_filename(seq: Option<u32>, total: Option<u32>, aweme_id: &str, stem: &str) -> String {
+    match seq.filter(|i| *i > 0) {
+        Some(i) => {
+            let width_total = total.unwrap_or(i) as usize;
+            format!("{}_{aweme_id}_{stem}.mp4", format_seq(i, width_total))
+        }
+        None => format!("{aweme_id}_{stem}.mp4"),
+    }
+}
+
+/// Strip leading `{seq}_` (digits) and `{awemeId}_`, leaving `{stem}.mp4`.
+fn strip_seq_and_aweme_id_prefix(name: &str, aweme_id: &str) -> String {
+    let mid = format!("_{aweme_id}_");
+    if let Some(pos) = name.find(&mid) {
+        let head = &name[..pos];
+        if !head.is_empty() && head.chars().all(|c| c.is_ascii_digit()) {
+            return name[pos + mid.len()..].to_string();
+        }
+    }
+    let prefix = format!("{aweme_id}_");
+    if let Some(rest) = name.strip_prefix(&prefix) {
+        return rest.to_string();
+    }
+    name.to_string()
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DouyinApplySeqResult {
+    pub renamed: u32,
+    pub skipped: u32,
+}
+
 /// Bring up the Douyin window so the user can sign in there.
 #[tauri::command]
 pub async fn douyin_open_login(app: AppHandle) -> Result<(), String> {
@@ -786,6 +828,8 @@ pub async fn douyin_download(
     play_urls: Option<Vec<String>>,
     title: Option<String>,
     kind: Option<String>,
+    seq: Option<u32>,
+    total: Option<u32>,
 ) -> Result<DouyinDownloadResult, String> {
     let aweme_id = aweme_id.trim().to_string();
     let candidates = merge_candidates(&play_url, play_urls);
@@ -807,7 +851,7 @@ pub async fn douyin_download(
             .filter(|s| !s.trim().is_empty())
             .unwrap_or(&aweme_id),
     );
-    let output = out_dir.join(format!("{aweme_id}_{stem}.mp4"));
+    let output = out_dir.join(media_filename(seq, total, &aweme_id, &stem));
 
     let bytes = fetch_media(&app, &aweme_id, &candidates, "下载").await?;
     let mut file = fs::File::create(&output)
@@ -844,4 +888,92 @@ pub async fn douyin_download(
         path: path_str,
         aweme_id,
     })
+}
+
+/// Rename already-downloaded files to `{seq}_{awemeId}_{stem}.mp4`.
+///
+/// `aweme_ids` must be in chronological order (oldest first → seq 1), matching
+/// NetEase liked-playlist numbering (display list is newest-on-top, so reverse it).
+#[tauri::command]
+pub async fn douyin_apply_aweme_seq(
+    app: AppHandle,
+    kind: String,
+    aweme_ids: Vec<String>,
+) -> Result<DouyinApplySeqResult, String> {
+    if aweme_ids.is_empty() {
+        return Ok(DouyinApplySeqResult {
+            renamed: 0,
+            skipped: 0,
+        });
+    }
+
+    let kind_folder = normalize_kind_folder(&kind);
+    let root = resolve_download_root(&app)?;
+    let _guard = index_lock().lock().await;
+    let mut index = load_index(&root).await?;
+    let total = aweme_ids.len();
+    let mut seq_of: HashMap<String, u32> = HashMap::new();
+    for (i, id) in aweme_ids.iter().enumerate() {
+        let id = id.trim();
+        if id.is_empty() {
+            continue;
+        }
+        seq_of.insert(id.to_string(), (i + 1) as u32);
+    }
+
+    let mut renamed = 0u32;
+    let mut skipped = 0u32;
+    let keys: Vec<String> = index.entries.keys().cloned().collect();
+    for key in keys {
+        let Some(mut entry) = index.entries.get(&key).cloned() else {
+            continue;
+        };
+        if normalize_kind_folder(&entry.kind) != kind_folder {
+            continue;
+        }
+        let Some(seq) = seq_of.get(&entry.aweme_id).copied() else {
+            skipped += 1;
+            continue;
+        };
+        let src = PathBuf::from(&entry.path);
+        if !src.is_file() {
+            skipped += 1;
+            continue;
+        }
+        let Some(fname) = src.file_name().map(|n| n.to_string_lossy().into_owned()) else {
+            skipped += 1;
+            continue;
+        };
+        let rest = strip_seq_and_aweme_id_prefix(&fname, &entry.aweme_id);
+        let new_name = format!("{}_{}_{rest}", format_seq(seq, total), entry.aweme_id);
+        let dest = src.with_file_name(new_name);
+        if dest == src {
+            continue;
+        }
+        if dest.exists() && dest != src {
+            skipped += 1;
+            continue;
+        }
+        std::fs::rename(&src, &dest).map_err(|e| format!("重命名失败: {e}"))?;
+        entry.path = dest.to_string_lossy().to_string();
+        index.entries.insert(key, entry);
+        renamed += 1;
+    }
+    if renamed > 0 {
+        save_index(&root, &index).await?;
+    }
+    // Persist chronological order even when nothing renamed (for offline scripts).
+    let order_path = root.join(format!("{kind_folder}-order.json"));
+    let order_body = serde_json::to_string_pretty(&json!({
+        "kind": kind_folder,
+        "total": total,
+        "awemeIds": aweme_ids,
+        "note": "oldest first (seq 1 = earliest / list bottom)",
+    }))
+    .map_err(|e| format!("序列化序号列表失败: {e}"))?;
+    fs::write(&order_path, order_body)
+        .await
+        .map_err(|e| format!("写入序号列表失败: {e}"))?;
+
+    Ok(DouyinApplySeqResult { renamed, skipped })
 }

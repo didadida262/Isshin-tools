@@ -47,6 +47,9 @@ export async function downloadAweme(params: {
   playUrls?: string[]
   title?: string
   kind?: DouyinListKind
+  /** 1-based chronological seq (oldest = 1); omit until list is fully loaded */
+  seq?: number
+  total?: number
 }) {
   return invoke<DouyinDownloadResult>('douyin_download', {
     awemeId: params.awemeId,
@@ -54,11 +57,21 @@ export async function downloadAweme(params: {
     playUrls: params.playUrls ?? null,
     title: params.title ?? null,
     kind: params.kind ?? null,
+    seq: params.seq ?? null,
+    total: params.total ?? null,
   })
 }
 
 export async function listDownloaded() {
   return invoke<DouyinDownloadedEntry[]>('douyin_list_downloaded')
+}
+
+/** Rename downloaded files to `{seq}_{awemeId}_{stem}.mp4`. Pass IDs oldest-first. */
+export async function applyAwemeSeq(kind: DouyinListKind, awemeIds: string[]) {
+  return invoke<{ renamed: number; skipped: number }>('douyin_apply_aweme_seq', {
+    kind,
+    awemeIds,
+  })
 }
 
 export async function cachePreview(params: {

@@ -11,4 +11,5 @@ commands.allow = [
   "douyin_download",
   "douyin_list_downloaded",
   "douyin_cache_preview",
+  "douyin_apply_aweme_seq",
 ]

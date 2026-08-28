@@ -78,6 +78,7 @@ export function DouyinDownloaderTool() {
                   onRetry={() => void list.reload()}
                   onLoadMore={() => list.loadMore()}
                   onDownloaded={downloaded.markDownloaded}
+                  onReloadDownloaded={downloaded.reload}
                   onRefreshAfterUnlike={() => list.reload({ clear: false })}
                   onBatchActiveChange={setBatchActive}
                 />

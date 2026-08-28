@@ -10,6 +10,7 @@ import {
   faFolderOpen,
   faHeart,
   faLayerGroup,
+  faListOl,
   faSpinner,
   faStop,
   faTriangleExclamation,
@@ -20,12 +21,13 @@ import { ErrorState } from '@/components/ErrorState'
 import { useToast } from '@/components/Toast'
 import { useToolVisible } from '@/shell/ToolVisibility'
 import { TASK_IDS, upsertTask } from '@/tasks'
-import { cachePreview, downloadAweme, unlikeAweme } from '../api/douyinApi'
+import { cachePreview, downloadAweme, unlikeAweme, applyAwemeSeq } from '../api/douyinApi'
 import { useBatchDownload } from '../hooks/useBatchDownload'
 import { useBatchUnlike } from '../hooks/useBatchUnlike'
 import { kindFolder } from '../hooks/useDownloadedAweme'
 import type { LoadMoreOutcome } from '../hooks/useAwemeList'
 import type { DouyinAweme, DouyinDownloadedEntry, DouyinListKind } from '../types'
+import { awemeSeq, chronologicalAwemeIds } from '../lib/awemeOrder'
 import {
   AWEME_ROW_HEIGHT,
   AwemeRow,
@@ -43,6 +45,7 @@ interface AwemePanelProps {
   onRetry: () => void
   onLoadMore: () => Promise<LoadMoreOutcome>
   onDownloaded: (entry: DouyinDownloadedEntry) => void
+  onReloadDownloaded: () => Promise<void>
   onRefreshAfterUnlike: () => Promise<{
     items: DouyinAweme[]
     hasMore: boolean
@@ -75,6 +78,7 @@ export function AwemePanel({
   onRetry,
   onLoadMore,
   onDownloaded,
+  onReloadDownloaded,
   onRefreshAfterUnlike,
   onBatchActiveChange,
 }: AwemePanelProps) {
@@ -93,6 +97,15 @@ export function AwemePanel({
   itemsRef.current = items
   const onLoadMoreRef = useRef(onLoadMore)
   onLoadMoreRef.current = onLoadMore
+  const appliedSeqKey = useRef('')
+  const anyBatchActiveRef = useRef(false)
+  const [seqRenaming, setSeqRenaming] = useState(false)
+  const seqRenamingRef = useRef(false)
+  const downloadingIdRef = useRef<string | null>(null)
+  const unlikingIdRef = useRef<string | null>(null)
+  const selectedRef = useRef<DouyinAweme | null>(null)
+  const downloadedByIdRef = useRef(downloadedById)
+  downloadedByIdRef.current = downloadedById
 
   const rowVirtualizer = useVirtualizer({
     count: items.length,
@@ -142,7 +155,7 @@ export function AwemePanel({
     onRefreshAfterUnlike,
   })
 
-  const anyBatchActive = batch.isActive || batchUnlike.isActive
+  const anyBatchActive = batch.isActive || batchUnlike.isActive || seqRenaming
   const followActiveId = batch.activeId ?? batchUnlike.activeId
   const followPhase = batch.isActive ? batch.phase : batchUnlike.phase
   const followLoadMoreUsed = batch.isActive
@@ -157,6 +170,122 @@ export function AwemePanel({
   useEffect(() => {
     onBatchActiveChange?.(anyBatchActive)
   }, [anyBatchActive, onBatchActiveChange])
+
+  // 列表全部加载后，按「最底=1」给已下载文件加序号（与网易喜欢歌单一致）
+  useEffect(() => {
+    if (
+      loading ||
+      error ||
+      hasMore ||
+      anyBatchActive ||
+      seqRenaming ||
+      items.length === 0
+    ) {
+      return
+    }
+    const first = items[0]?.awemeId ?? ''
+    const last = items[items.length - 1]?.awemeId ?? ''
+    const key = `${kind}:${items.length}:${first}:${last}`
+    if (appliedSeqKey.current === key) return
+    appliedSeqKey.current = key
+    void applyAwemeSeq(kind, chronologicalAwemeIds(items))
+      .then(async (result) => {
+        if (result.renamed > 0) {
+          toast(`已按列表序号重命名 ${result.renamed} 个文件`, 'success')
+          await onReloadDownloaded()
+        }
+      })
+      .catch((e) => {
+        appliedSeqKey.current = ''
+        const message = e instanceof Error ? e.message : String(e)
+        toast(`按序号重命名失败：${message}`, 'danger')
+      })
+  }, [
+    kind,
+    loading,
+    error,
+    hasMore,
+    anyBatchActive,
+    seqRenaming,
+    items,
+    onReloadDownloaded,
+    toast,
+  ])
+
+  const runSeqRename = useCallback(
+    async (ids: string[]) => {
+      const result = await applyAwemeSeq(kind, ids)
+      if (result.renamed > 0) {
+        toast(`已按列表序号重命名 ${result.renamed} 个文件`, 'success')
+        await onReloadDownloaded()
+      } else {
+        toast(
+          result.skipped > 0
+            ? `没有需要重命名的文件（跳过 ${result.skipped}）`
+            : '文件名已是最新序号，无需改动',
+          'neutral',
+        )
+      }
+      return result
+    },
+    [kind, onReloadDownloaded, toast],
+  )
+
+  const handleSeqRenameClick = useCallback(async () => {
+    if (
+      seqRenamingRef.current ||
+      anyBatchActiveRef.current ||
+      downloadingIdRef.current ||
+      unlikingIdRef.current
+    ) {
+      return
+    }
+    seqRenamingRef.current = true
+    setSeqRenaming(true)
+    appliedSeqKey.current = ''
+    try {
+      if (hasMore) {
+        toast('正在加载全部列表以便编号…', 'neutral')
+      }
+      for (let i = 0; i < 2000; i++) {
+        const outcome = await batchLoadMore()
+        if (outcome.status === 'noop' && outcome.reason === 'no-more') break
+        if (outcome.status === 'ok') {
+          if (!outcome.hasMore) break
+          await new Promise<void>((r) => window.setTimeout(r, 400))
+          continue
+        }
+        if (outcome.status === 'empty') {
+          toast(outcome.message, 'danger')
+          return
+        }
+        if (outcome.status === 'error') {
+          toast(`加载列表失败：${outcome.message}`, 'danger')
+          return
+        }
+        if (outcome.status === 'noop' && outcome.reason === 'busy') {
+          await new Promise<void>((r) => window.setTimeout(r, 300))
+          continue
+        }
+        // missing-auth / other noop
+        break
+      }
+
+      const list = itemsRef.current
+      if (list.length === 0) {
+        toast('当前没有可编号的条目', 'neutral')
+        return
+      }
+      const ids = chronologicalAwemeIds(list)
+      appliedSeqKey.current = `${kind}:${list.length}:${list[0]?.awemeId}:${list[list.length - 1]?.awemeId}`
+      await runSeqRename(ids)
+    } catch (e) {
+      toast(e instanceof Error ? e.message : String(e), 'danger')
+    } finally {
+      seqRenamingRef.current = false
+      setSeqRenaming(false)
+    }
+  }, [hasMore, kind, batchLoadMore, runSeqRename, toast])
 
   useEffect(() => {
     if (!selected) {
@@ -216,13 +345,6 @@ export function AwemePanel({
     }
   }, [selected])
 
-  const downloadedByIdRef = useRef(downloadedById)
-  downloadedByIdRef.current = downloadedById
-  const anyBatchActiveRef = useRef(false)
-  const downloadingIdRef = useRef<string | null>(null)
-  const unlikingIdRef = useRef<string | null>(null)
-  const selectedRef = useRef<DouyinAweme | null>(null)
-
   const handleDownload = useCallback(
     async (item: DouyinAweme) => {
       if (
@@ -234,6 +356,7 @@ export function AwemePanel({
       }
       const taskId = TASK_IDS.douyinSingle(item.awemeId)
       const title = item.desc || item.awemeId
+      const order = hasMore ? undefined : awemeSeq(itemsRef.current, item.awemeId)
       setDownloadingId(item.awemeId)
       upsertTask({
         id: taskId,
@@ -250,6 +373,8 @@ export function AwemePanel({
           playUrls: item.playUrlCandidates,
           title,
           kind,
+          seq: order?.seq,
+          total: order?.total,
         })
         setLastPath(result.path)
         onDownloaded({
@@ -283,7 +408,7 @@ export function AwemePanel({
         setDownloadingId(null)
       }
     },
-    [kind, onDownloaded, toast],
+    [kind, hasMore, onDownloaded, toast],
   )
 
   const handleUnlike = useCallback(
@@ -419,12 +544,26 @@ export function AwemePanel({
               </p>
             </div>
             <div className="flex shrink-0 flex-nowrap items-center justify-end gap-2">
+              <button
+                type="button"
+                disabled={controlsLocked || items.length === 0}
+                onClick={() => void handleSeqRenameClick()}
+                title="列表从下往上编号（最早=0001），写入文件名"
+                className="inline-flex h-8 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-xl border border-border bg-background px-3 text-[11px] text-foreground transition-colors hover:border-muted hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                <FontAwesomeIcon
+                  icon={seqRenaming ? faSpinner : faListOl}
+                  className={`h-3 w-3 ${seqRenaming ? 'animate-spin' : ''}`}
+                />
+                {seqRenaming ? '编号中…' : '按序号重命名'}
+              </button>
               {kind === 'favorite' && (
                 <button
                   type="button"
                   disabled={
                     busySingle ||
                     batch.isActive ||
+                    seqRenaming ||
                     (items.length === 0 && !hasMore && !batchUnlike.isActive)
                   }
                   onClick={handleBatchUnlikeClick}
@@ -458,6 +597,7 @@ export function AwemePanel({
                 disabled={
                   busySingle ||
                   batchUnlike.isActive ||
+                  seqRenaming ||
                   (pendingCount === 0 && !hasMore && !batch.isActive)
                 }
                 onClick={handleBatchClick}

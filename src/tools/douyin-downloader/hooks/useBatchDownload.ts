@@ -7,6 +7,7 @@ import {
   upsertTask,
 } from '@/tasks'
 import { downloadAweme } from '../api/douyinApi'
+import { awemeSeq } from '../lib/awemeOrder'
 import type { LoadMoreOutcome } from './useAwemeList'
 import type {
   DouyinAweme,
@@ -319,12 +320,17 @@ export function useBatchDownload({
           setStatusText(`正在下载${kindLabel}：${pending.desc || pending.awemeId}`)
 
           try {
+            const order = hasMoreRef.current
+              ? undefined
+              : awemeSeq(itemsRef.current, pending.awemeId)
             const result = await downloadAweme({
               awemeId: pending.awemeId,
               playUrl: pending.playUrl,
               playUrls: pending.playUrlCandidates,
               title: pending.desc || pending.awemeId,
               kind,
+              seq: order?.seq,
+              total: order?.total,
             })
             if (cancelRef.current) break
 
