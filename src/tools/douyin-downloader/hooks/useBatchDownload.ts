@@ -67,13 +67,12 @@ function looksLikeRiskControl(message: string) {
 /**
  * 视频源永久失效（已删除 / 转为私密）：批量时应跳过，勿整批停住重试。
  *
- * 只认后端的显式标记，不再从状态码文本去猜。后端只有在「全部镜像被拒 **且**
- * 重新签名成功后依然被拒」时才打这个标记——签名成功本身就证明了登录态是活的，
- * 因此剩下的嫌疑才落到视频自己身上。反过来说，登录/签名一旦有问题，
- * 后端不会打标记，这里就会走下面的风控分支把批量停住，而不是把条目悄悄埋掉。
+ * 优先认后端的 MEDIA_GONE 标记；正文里的「视频源已不可用」是同一路径写出的
+ * 中文标记，用作剥前缀后的兜底。登录/签名失败时后端不会打这两处，会走风控分支。
  */
 function looksLikeItemUnavailable(message: string) {
-  return message.toLowerCase().includes('media_gone')
+  const text = message.toLowerCase()
+  return text.includes('media_gone') || message.includes('视频源已不可用')
 }
 
 /**
@@ -345,8 +344,11 @@ export function useBatchDownload({
             consecutiveSkips = 0
             setSuccessCount(localSuccess)
           } catch (e) {
-            const message = humanMessage(e instanceof Error ? e.message : String(e))
-            if (looksLikeItemUnavailable(message)) {
+            const raw = e instanceof Error ? e.message : String(e)
+            const message = humanMessage(raw)
+            // 必须用 raw 判断：humanMessage 会剥掉 MEDIA_GONE 前缀；
+            // 剥完后正文里的「cookie」会误撞 looksLikeRiskControl。
+            if (looksLikeItemUnavailable(raw)) {
               const nextSkipped = new Map(skippedRef.current).set(
                 pending.awemeId,
                 message,
