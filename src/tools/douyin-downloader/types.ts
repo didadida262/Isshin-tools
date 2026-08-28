@@ -19,6 +19,8 @@ export interface DouyinAweme {
   desc: string
   coverUrl: string
   playUrl: string
+  /** 同一视频的全部 CDN 镜像，主地址在前；单个地址 403/过期时用于回退 */
+  playUrlCandidates: string[]
   durationMs: number
   diggCount: number
   createTime: number

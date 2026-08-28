@@ -155,6 +155,7 @@ export function AwemePanel({
         const path = await cachePreview({
           awemeId: selected.awemeId,
           playUrl: selected.playUrl,
+          playUrls: selected.playUrlCandidates,
         })
         // blob URL：WKWebView 下 convertFileSrc(asset://) 经常无法播放本地 mp4
         const bytes = await readFile(path)
@@ -206,6 +207,7 @@ export function AwemePanel({
       const result = await downloadAweme({
         awemeId: item.awemeId,
         playUrl: item.playUrl,
+        playUrls: item.playUrlCandidates,
         title,
         kind,
       })

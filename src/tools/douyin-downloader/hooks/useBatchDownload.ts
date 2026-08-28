@@ -64,14 +64,28 @@ function looksLikeRiskControl(message: string) {
   )
 }
 
-/** CDN / 资源永久失效：批量时应跳过，勿整批停住重试。 */
-function looksLikeNotFound(message: string) {
-  const text = message.toLowerCase()
-  return (
-    /\b404\b/.test(text) ||
-    text.includes('not found') ||
-    text.includes('不存在')
-  )
+/**
+ * 视频源永久失效（已删除 / 转为私密）：批量时应跳过，勿整批停住重试。
+ *
+ * 只认后端的显式标记，不再从状态码文本去猜。后端只有在「全部镜像被拒 **且**
+ * 重新签名成功后依然被拒」时才打这个标记——签名成功本身就证明了登录态是活的，
+ * 因此剩下的嫌疑才落到视频自己身上。反过来说，登录/签名一旦有问题，
+ * 后端不会打标记，这里就会走下面的风控分支把批量停住，而不是把条目悄悄埋掉。
+ */
+function looksLikeItemUnavailable(message: string) {
+  return message.toLowerCase().includes('media_gone')
+}
+
+/**
+ * 连续这么多条都「不可用」就不再当成个别死链。
+ *
+ * 真正失效的视频在列表里是零散分布的；连片失败更像是被限流，
+ * 此时继续跳下去会把整个列表刷成「已跳过」。
+ */
+const MAX_CONSECUTIVE_SKIPS = 8
+
+function humanMessage(message: string) {
+  return message.replace(/^MEDIA_GONE\s*·\s*/i, '')
 }
 
 interface UseBatchDownloadParams {
@@ -99,7 +113,7 @@ export function useBatchDownload({
   const [loadMoreUsed, setLoadMoreUsed] = useState(0)
   const [successCount, setSuccessCount] = useState(0)
   const [skipCount, setSkipCount] = useState(0)
-  /** awemeId → 跳过原因（如 404），会话内保留，避免批量反复撞同一失效资源 */
+  /** awemeId → 跳过原因，会话内保留，避免批量反复撞同一失效资源 */
   const [skippedById, setSkippedById] = useState<Map<string, string>>(
     () => new Map(),
   )
@@ -260,6 +274,7 @@ export function useBatchDownload({
     let localSuccess = 0
     let localSkip = 0
     let localLoadMore = 0
+    let consecutiveSkips = 0
     const folder = kind === 'favorite' ? 'likes' : 'works'
     const kindLabel = kind === 'favorite' ? '喜欢' : '作品'
 
@@ -286,7 +301,7 @@ export function useBatchDownload({
     const completeMessage = () => {
       const parts: string[] = []
       if (localSuccess > 0) parts.push(`成功下载 ${localSuccess} 个`)
-      if (localSkip > 0) parts.push(`跳过 404 ${localSkip} 个`)
+      if (localSkip > 0) parts.push(`跳过 ${localSkip} 个（视频源不可用）`)
       if (parts.length === 0) {
         return skippedRef.current.size > 0
           ? '当前列表已全部处理（含已跳过），且没有更多内容'
@@ -308,6 +323,7 @@ export function useBatchDownload({
             const result = await downloadAweme({
               awemeId: pending.awemeId,
               playUrl: pending.playUrl,
+              playUrls: pending.playUrlCandidates,
               title: pending.desc || pending.awemeId,
               kind,
             })
@@ -326,26 +342,36 @@ export function useBatchDownload({
               entry,
             )
             localSuccess += 1
+            consecutiveSkips = 0
             setSuccessCount(localSuccess)
           } catch (e) {
-            const message = e instanceof Error ? e.message : String(e)
-            if (looksLikeNotFound(message)) {
-              const reason = '资源 404'
+            const message = humanMessage(e instanceof Error ? e.message : String(e))
+            if (looksLikeItemUnavailable(message)) {
               const nextSkipped = new Map(skippedRef.current).set(
                 pending.awemeId,
-                reason,
+                message,
               )
               skippedRef.current = nextSkipped
               setSkippedById(nextSkipped)
               localSkip += 1
+              consecutiveSkips += 1
               setSkipCount(nextSkipped.size)
-              setStatusText(
-                `资源 404，已跳过：${pending.desc || pending.awemeId}`,
-              )
+
+              if (consecutiveSkips >= MAX_CONSECUTIVE_SKIPS) {
+                finish(
+                  'stopped',
+                  'risk',
+                  `连续 ${consecutiveSkips} 条视频源都不可用，疑似被限流而非视频失效，已停止：${message}`,
+                )
+                return
+              }
+
               if (cancelRef.current) break
               const delay = randomDelayMs()
               setPhase('waiting')
-              setStatusText(`已跳过 404，间隔等待 ${(delay / 1000).toFixed(1)}s…`)
+              setStatusText(
+                `视频源不可用已跳过，间隔等待 ${(delay / 1000).toFixed(1)}s…`,
+              )
               await sleep(delay, () => cancelRef.current)
               continue
             }
@@ -443,7 +469,7 @@ export function useBatchDownload({
           'paused',
           'user',
           `已手动停止（本轮成功 ${localSuccess} 个${
-            localSkip > 0 ? `，跳过 404 ${localSkip} 个` : ''
+            localSkip > 0 ? `，跳过 ${localSkip} 个` : ''
           }，加载更多 ${localLoadMore} 次）`,
         )
       }

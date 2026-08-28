@@ -44,12 +44,14 @@ export async function unlikeAweme(awemeId: string) {
 export async function downloadAweme(params: {
   awemeId: string
   playUrl: string
+  playUrls?: string[]
   title?: string
   kind?: DouyinListKind
 }) {
   return invoke<DouyinDownloadResult>('douyin_download', {
     awemeId: params.awemeId,
     playUrl: params.playUrl,
+    playUrls: params.playUrls ?? null,
     title: params.title ?? null,
     kind: params.kind ?? null,
   })
@@ -62,9 +64,11 @@ export async function listDownloaded() {
 export async function cachePreview(params: {
   awemeId: string
   playUrl: string
+  playUrls?: string[]
 }) {
   return invoke<string>('douyin_cache_preview', {
     awemeId: params.awemeId,
     playUrl: params.playUrl,
+    playUrls: params.playUrls ?? null,
   })
 }

@@ -35,6 +35,9 @@ pub struct DouyinAweme {
     pub desc: String,
     pub cover_url: String,
     pub play_url: String,
+    /// All known mirrors for this video, primary first. A single CDN host can
+    /// refuse (403) or expire while its siblings still serve the same file.
+    pub play_url_candidates: Vec<String>,
     pub duration_ms: u64,
     pub digg_count: u64,
     pub create_time: u64,
@@ -107,6 +110,206 @@ fn media_headers(cookie: Option<&str>) -> Result<HeaderMap, String> {
     Ok(headers)
 }
 
+/// Prefix that tells the UI "no retry will help this item, move on".
+///
+/// A refusal from the media CDN and a refusal from the signed API mean opposite
+/// things: the latter is an account-level block worth backing off from, the
+/// former is usually just one dead video in a long list. Without a marker the
+/// UI can only pattern-match on `403`, which conflates the two and turns a
+/// single unavailable video into a stuck batch.
+pub const MEDIA_GONE_TAG: &str = "MEDIA_GONE";
+
+fn media_gone(detail: impl AsRef<str>) -> String {
+    format!("{MEDIA_GONE_TAG} · {}", detail.as_ref())
+}
+
+/// Cookie state as it looked to the CDN request.
+///
+/// `session_cookie` degrades to `None` when the bridge window is gone, which
+/// used to surface as an unexplained 403. Naming the state keeps "signed out"
+/// from masquerading as "video unavailable".
+fn describe_cookie(cookie: Option<&str>) -> String {
+    let Some(cookie) = cookie else {
+        return "缺失（抖音窗口不在或未登录）".into();
+    };
+    let signed_in = ["sessionid", "sessionid_ss", "sid_tt"]
+        .iter()
+        .any(|name| cookie.contains(&format!("{name}=")));
+    let count = cookie.split(';').filter(|s| !s.trim().is_empty()).count();
+    if signed_in {
+        format!("正常（{count} 项，含登录态）")
+    } else {
+        format!("异常（{count} 项，无登录态字段）")
+    }
+}
+
+enum MediaAttempt {
+    Ok(Vec<u8>),
+    /// The host replied, but with something other than the file.
+    Refused(String),
+    /// Never got a usable reply; another mirror may still work.
+    Failed(String),
+}
+
+async fn fetch_media_once(url: &str, cookie: Option<&str>) -> MediaAttempt {
+    let headers = match media_headers(cookie) {
+        Ok(headers) => headers,
+        Err(e) => return MediaAttempt::Failed(e),
+    };
+    let resp = match download_client().get(url).headers(headers).send().await {
+        Ok(resp) => resp,
+        Err(e) => return MediaAttempt::Failed(format!("{e}")),
+    };
+    let status = resp.status();
+    if !status.is_success() {
+        return MediaAttempt::Refused(format!("HTTP {status}"));
+    }
+    // `/aweme/v1/play/` answers 200 with an HTML or JSON error page when it
+    // declines, and saving that as an .mp4 would look like a corrupt download.
+    let content_type = resp
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    if content_type.contains("text/") || content_type.contains("json") {
+        return MediaAttempt::Refused(format!("响应不是媒体流 ({content_type})"));
+    }
+    match resp.bytes().await {
+        Ok(bytes) if bytes.len() < 1024 => {
+            MediaAttempt::Refused(format!("响应过小 ({} 字节)", bytes.len()))
+        }
+        Ok(bytes) => MediaAttempt::Ok(bytes.to_vec()),
+        Err(e) => MediaAttempt::Failed(format!("读取流失败: {e}")),
+    }
+}
+
+/// Re-resolve mirrors for one video through the signing bridge.
+///
+/// The links handed out with the list are short-lived, so anything downloaded
+/// long after the page was fetched needs a fresh set.
+async fn refresh_play_urls(app: &AppHandle, aweme_id: &str) -> Result<Vec<String>, String> {
+    let body = bridge_json(
+        app,
+        "GET",
+        "/aweme/v1/web/aweme/detail/",
+        json!({ "aweme_id": aweme_id }),
+        None,
+        douyin_bridge::Surface::Never,
+    )
+    .await?;
+    let video = body
+        .pointer("/aweme_detail/video")
+        .ok_or_else(|| "详情接口未返回视频信息".to_string())?;
+    Ok(collect_play_urls(video))
+}
+
+/// Reproduces "the links went stale overnight" on demand.
+///
+/// The repair path only runs once the CDN refuses every mirror, so in normal
+/// use it is reachable only by leaving the app open for hours — which would
+/// mean shipping the one piece of logic that matters untested. With
+/// `ISSHIN_DOUYIN_FAULT_STALE_URLS=1` every mirror is pointed at a dead path on
+/// its own host, which is what an expired signature looks like from here: the
+/// host answers, and it says no.
+#[cfg(debug_assertions)]
+fn stale_url_fault(queue: &[String]) -> Option<Vec<String>> {
+    if std::env::var_os("ISSHIN_DOUYIN_FAULT_STALE_URLS").is_none() {
+        return None;
+    }
+    let mut faulted = Vec::new();
+    for url in queue {
+        if let Ok(mut parsed) = reqwest::Url::parse(url) {
+            parsed.set_path("/isshin-fault-injection");
+            parsed.set_query(None);
+            push_url(&mut faulted, parsed.as_str());
+        }
+    }
+    (!faulted.is_empty()).then_some(faulted)
+}
+
+/// Walk every mirror, then a freshly resolved set, before giving up.
+async fn fetch_media(
+    app: &AppHandle,
+    aweme_id: &str,
+    candidates: &[String],
+    label: &str,
+) -> Result<Vec<u8>, String> {
+    let mut queue: Vec<String> = Vec::new();
+    for url in candidates {
+        push_url(&mut queue, url);
+    }
+    if queue.is_empty() {
+        return Err(format!("{label}失败: 没有可用的播放地址"));
+    }
+    #[cfg(debug_assertions)]
+    if let Some(faulted) = stale_url_fault(&queue) {
+        queue = faulted;
+    }
+
+    let cookie = douyin_bridge::session_cookie(app);
+    let mut tried = 0usize;
+    let mut refused: Vec<String> = Vec::new();
+    let mut failed: Vec<String> = Vec::new();
+    // `None` until the cached mirrors run out; then `Ok` once the signing
+    // bridge has re-described the video, or `Err` with why it could not.
+    let mut refresh: Option<Result<(), String>> = None;
+
+    while tried < queue.len() {
+        let url = queue[tried].clone();
+        tried += 1;
+        match fetch_media_once(&url, cookie.as_deref()).await {
+            MediaAttempt::Ok(bytes) => return Ok(bytes),
+            MediaAttempt::Refused(reason) => refused.push(reason),
+            MediaAttempt::Failed(reason) => failed.push(reason),
+        }
+
+        // Only worth re-resolving once, and only after the cached mirrors are
+        // exhausted — a refusal is the signal that they have gone stale.
+        if tried == queue.len() && refresh.is_none() && !refused.is_empty() {
+            refresh = Some(match refresh_play_urls(app, aweme_id).await {
+                Ok(fresh) => {
+                    for url in &fresh {
+                        push_url(&mut queue, url);
+                    }
+                    Ok(())
+                }
+                Err(e) => Err(e),
+            });
+        }
+    }
+
+    let mut detail = vec![format!("会话 cookie {}", describe_cookie(cookie.as_deref()))];
+    if !refused.is_empty() {
+        detail.push(format!(
+            "{} 个地址被拒绝 ({})",
+            refused.len(),
+            refused.join(" / ")
+        ));
+    }
+    if !failed.is_empty() {
+        detail.push(failed.join(" / "));
+    }
+
+    // A refusal alone cannot tell "this video is gone" from "this client is no
+    // longer trusted" — in both cases every mirror says 403. What separates them
+    // is whether the signing bridge still works: a successful re-describe proves
+    // the session is alive, so the remaining suspect is the video itself.
+    // Without that proof we must stay loud rather than quietly bury the item.
+    match refresh {
+        Some(Ok(())) => {
+            detail.push("重新签名后仍被拒绝".into());
+            let text = format!("{label}失败: 视频源已不可用 · {}", detail.join(" · "));
+            Err(media_gone(text))
+        }
+        Some(Err(e)) => Err(format!(
+            "{label}失败: 无法确认视频状态（登录态或签名通道可能已失效）· {} · 刷新播放地址失败: {e}",
+            detail.join(" · ")
+        )),
+        None => Err(format!("{label}失败: {}", detail.join(" · "))),
+    }
+}
+
 /// Run a signed request through the bridge WebView and decode the JSON body.
 async fn bridge_json(
     app: &AppHandle,
@@ -155,33 +358,52 @@ fn first_url(list: Option<&Vec<Value>>) -> String {
         .to_string()
 }
 
-fn pick_play_url(video: &Value) -> String {
-    let candidates = [
-        video.pointer("/play_addr/url_list"),
-        video.pointer("/download_addr/url_list"),
-        video.pointer("/play_addr_h264/url_list"),
-    ];
-    for c in candidates {
-        if let Some(Value::Array(arr)) = c {
-            if let Some(u) = arr.iter().find_map(|x| x.as_str()) {
-                if !u.is_empty() {
-                    return u.to_string();
-                }
+fn push_url(out: &mut Vec<String>, url: &str) {
+    let url = url.trim();
+    if url.is_empty() || out.iter().any(|seen| seen == url) {
+        return;
+    }
+    out.push(url.to_string());
+}
+
+/// Primary URL first, then the rest of the mirrors the caller knows about.
+fn merge_candidates(play_url: &str, play_urls: Option<Vec<String>>) -> Vec<String> {
+    let mut out = Vec::new();
+    push_url(&mut out, play_url);
+    for url in play_urls.unwrap_or_default() {
+        push_url(&mut out, &url);
+    }
+    out
+}
+
+/// Every mirror the list response offers for one video, best first.
+///
+/// These links are signed and short-lived. Mirrors help when one host is having
+/// a bad day, but they all age out together, so an expired set has to be
+/// replaced via [`refresh_play_urls`] rather than retried.
+fn collect_play_urls(video: &Value) -> Vec<String> {
+    let mut out = Vec::new();
+    for key in [
+        "/play_addr/url_list",
+        "/download_addr/url_list",
+        "/play_addr_h264/url_list",
+    ] {
+        if let Some(Value::Array(arr)) = video.pointer(key) {
+            for url in arr.iter().filter_map(|x| x.as_str()) {
+                push_url(&mut out, url);
             }
         }
     }
     if let Some(Value::Array(rates)) = video.get("bit_rate") {
         for rate in rates {
             if let Some(Value::Array(arr)) = rate.pointer("/play_addr/url_list") {
-                if let Some(u) = arr.iter().find_map(|x| x.as_str()) {
-                    if !u.is_empty() {
-                        return u.to_string();
-                    }
+                for url in arr.iter().filter_map(|x| x.as_str()) {
+                    push_url(&mut out, url);
                 }
             }
         }
     }
-    String::new()
+    out
 }
 
 fn parse_aweme(item: &Value) -> Option<DouyinAweme> {
@@ -192,10 +414,8 @@ fn parse_aweme(item: &Value) -> Option<DouyinAweme> {
         .unwrap_or("")
         .to_string();
     let video = item.get("video")?;
-    let play_url = pick_play_url(video);
-    if play_url.is_empty() {
-        return None;
-    }
+    let play_url_candidates = collect_play_urls(video);
+    let play_url = play_url_candidates.first()?.clone();
     let cover_url = first_url(
         video
             .pointer("/cover/url_list")
@@ -226,6 +446,7 @@ fn parse_aweme(item: &Value) -> Option<DouyinAweme> {
         desc,
         cover_url,
         play_url,
+        play_url_candidates,
         duration_ms,
         digg_count,
         create_time,
@@ -533,10 +754,11 @@ pub async fn douyin_cache_preview(
     app: AppHandle,
     aweme_id: String,
     play_url: String,
+    play_urls: Option<Vec<String>>,
 ) -> Result<String, String> {
     let aweme_id = aweme_id.trim().to_string();
-    let play_url = play_url.trim().to_string();
-    if aweme_id.is_empty() || play_url.is_empty() {
+    let candidates = merge_candidates(&play_url, play_urls);
+    if aweme_id.is_empty() || candidates.is_empty() {
         return Err("参数不完整".into());
     }
     let root = resolve_download_root(&app)?;
@@ -549,20 +771,7 @@ pub async fn douyin_cache_preview(
         return Ok(output.to_string_lossy().to_string());
     }
 
-    let cookie = douyin_bridge::session_cookie(&app);
-    let resp = download_client()
-        .get(&play_url)
-        .headers(media_headers(cookie.as_deref())?)
-        .send()
-        .await
-        .map_err(|e| format!("预览拉取失败: {e}"))?;
-    if !resp.status().is_success() {
-        return Err(format!("预览 HTTP {}", resp.status()));
-    }
-    let bytes = resp
-        .bytes()
-        .await
-        .map_err(|e| format!("读取预览流失败: {e}"))?;
+    let bytes = fetch_media(&app, &aweme_id, &candidates, "预览拉取").await?;
     fs::write(&output, &bytes)
         .await
         .map_err(|e| format!("写入预览失败: {e}"))?;
@@ -574,12 +783,13 @@ pub async fn douyin_download(
     app: AppHandle,
     aweme_id: String,
     play_url: String,
+    play_urls: Option<Vec<String>>,
     title: Option<String>,
     kind: Option<String>,
 ) -> Result<DouyinDownloadResult, String> {
     let aweme_id = aweme_id.trim().to_string();
-    let play_url = play_url.trim().to_string();
-    if aweme_id.is_empty() || play_url.is_empty() {
+    let candidates = merge_candidates(&play_url, play_urls);
+    if aweme_id.is_empty() || candidates.is_empty() {
         return Err("aweme_id / play_url 不能为空".into());
     }
     let kind = kind.unwrap_or_else(|| "works".into());
@@ -599,20 +809,7 @@ pub async fn douyin_download(
     );
     let output = out_dir.join(format!("{aweme_id}_{stem}.mp4"));
 
-    let cookie = douyin_bridge::session_cookie(&app);
-    let resp = download_client()
-        .get(&play_url)
-        .headers(media_headers(cookie.as_deref())?)
-        .send()
-        .await
-        .map_err(|e| format!("下载失败: {e}"))?;
-    if !resp.status().is_success() {
-        return Err(format!("下载 HTTP {}", resp.status()));
-    }
-    let bytes = resp
-        .bytes()
-        .await
-        .map_err(|e| format!("读取视频流失败: {e}"))?;
+    let bytes = fetch_media(&app, &aweme_id, &candidates, "下载").await?;
     let mut file = fs::File::create(&output)
         .await
         .map_err(|e| format!("创建文件失败: {e}"))?;
