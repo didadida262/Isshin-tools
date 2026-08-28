@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { useVirtualizer } from '@tanstack/react-virtual'
 import { readFile } from '@tauri-apps/plugin-fs'
 import { AnimatePresence, motion } from 'framer-motion'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
@@ -9,7 +10,6 @@ import {
   faFolderOpen,
   faHeart,
   faLayerGroup,
-  faSatelliteDish,
   faSpinner,
   faStop,
   faTriangleExclamation,
@@ -26,6 +26,11 @@ import { useBatchUnlike } from '../hooks/useBatchUnlike'
 import { kindFolder } from '../hooks/useDownloadedAweme'
 import type { LoadMoreOutcome } from '../hooks/useAwemeList'
 import type { DouyinAweme, DouyinDownloadedEntry, DouyinListKind } from '../types'
+import {
+  AWEME_ROW_HEIGHT,
+  AwemeRow,
+  awemeGridTemplate,
+} from './AwemeRow'
 
 interface AwemePanelProps {
   kind: DouyinListKind
@@ -84,21 +89,40 @@ export function AwemePanel({
   const [previewError, setPreviewError] = useState<string | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const sentinelRef = useRef<HTMLDivElement>(null)
-  const rowRefs = useRef(new Map<string, HTMLTableRowElement>())
+  const itemsRef = useRef(items)
+  itemsRef.current = items
   const onLoadMoreRef = useRef(onLoadMore)
   onLoadMoreRef.current = onLoadMore
 
-  const batchLoadMore = useCallback(async () => {
-    const root = scrollRef.current
-    if (root) {
-      const target = Math.max(0, root.scrollHeight - root.clientHeight)
-      root.scrollTo({ top: target, behavior: 'smooth' })
-      await new Promise<void>((resolve) => {
-        window.setTimeout(resolve, 420)
+  const rowVirtualizer = useVirtualizer({
+    count: items.length,
+    getScrollElement: () => scrollRef.current,
+    estimateSize: () => AWEME_ROW_HEIGHT,
+    overscan: 10,
+    getItemKey: (index) => items[index]?.awemeId ?? index,
+  })
+  const virtualizerRef = useRef(rowVirtualizer)
+  virtualizerRef.current = rowVirtualizer
+
+  const scrollToIndex = useCallback(
+    (index: number, align: 'auto' | 'end' | 'start' | 'center' = 'auto') => {
+      if (index < 0) return
+      virtualizerRef.current.scrollToIndex(index, {
+        align,
+        behavior: 'auto',
       })
-    }
+    },
+    [],
+  )
+
+  const batchLoadMore = useCallback(async () => {
+    const last = itemsRef.current.length - 1
+    if (last >= 0) scrollToIndex(last, 'end')
+    await new Promise<void>((resolve) => {
+      window.setTimeout(resolve, 80)
+    })
     return onLoadMoreRef.current()
-  }, [])
+  }, [scrollToIndex])
 
   const batch = useBatchDownload({
     sessionKey,
@@ -127,6 +151,8 @@ export function AwemePanel({
   const batchDownloadIndex = batch.activeId
     ? items.findIndex((item) => item.awemeId === batch.activeId)
     : -1
+
+  const gridTemplate = useMemo(() => awemeGridTemplate(kind), [kind])
 
   useEffect(() => {
     onBatchActiveChange?.(anyBatchActive)
@@ -190,120 +216,120 @@ export function AwemePanel({
     }
   }, [selected])
 
-  const handleDownload = async (item: DouyinAweme) => {
-    if (downloadedById.has(item.awemeId) || downloadingId || anyBatchActive) return
-    const taskId = TASK_IDS.douyinSingle(item.awemeId)
-    const title = item.desc || item.awemeId
-    setDownloadingId(item.awemeId)
-    upsertTask({
-      id: taskId,
-      source: 'douyin',
-      sourceLabel: '抖音下载器',
-      title: '下载视频',
-      detail: title,
-      status: 'running',
-    })
-    try {
-      const result = await downloadAweme({
-        awemeId: item.awemeId,
-        playUrl: item.playUrl,
-        playUrls: item.playUrlCandidates,
-        title,
-        kind,
-      })
-      setLastPath(result.path)
-      onDownloaded({
-        awemeId: item.awemeId,
-        kind: kindFolder(kind),
-        path: result.path,
-        title,
-        downloadedAt: Math.floor(Date.now() / 1000),
-      })
-      upsertTask({
-        id: taskId,
-        source: 'douyin',
-        sourceLabel: '抖音下载器',
-        title: '下载视频',
-        detail: `已保存：${title}`,
-        status: 'success',
-      })
-      toast(`已下载到 downloads/抖音/${kindFolder(kind)}`, 'success')
-    } catch (e) {
-      const message = e instanceof Error ? e.message : String(e)
-      upsertTask({
-        id: taskId,
-        source: 'douyin',
-        sourceLabel: '抖音下载器',
-        title: '下载视频',
-        detail: message,
-        status: 'error',
-      })
-      toast(message, 'danger')
-    } finally {
-      setDownloadingId(null)
-    }
-  }
+  const downloadedByIdRef = useRef(downloadedById)
+  downloadedByIdRef.current = downloadedById
+  const anyBatchActiveRef = useRef(false)
+  const downloadingIdRef = useRef<string | null>(null)
+  const unlikingIdRef = useRef<string | null>(null)
+  const selectedRef = useRef<DouyinAweme | null>(null)
 
-  const handleUnlike = async (item: DouyinAweme) => {
-    if (kind !== 'favorite' || unlikingId || anyBatchActive) return
-    const ok = window.confirm(
-      `确定取消喜欢「${item.desc || item.awemeId}」？\n此操作会同步到抖音账号。`,
-    )
-    if (!ok) return
-    setUnlikingId(item.awemeId)
-    try {
-      await unlikeAweme(item.awemeId)
-      await onRefreshAfterUnlike()
-      if (selected?.awemeId === item.awemeId) setSelected(null)
-      toast('已取消喜欢', 'success')
-    } catch (e) {
-      toast(e instanceof Error ? e.message : String(e), 'danger')
-    } finally {
-      setUnlikingId(null)
-    }
-  }
+  const handleDownload = useCallback(
+    async (item: DouyinAweme) => {
+      if (
+        downloadedByIdRef.current.has(item.awemeId) ||
+        downloadingIdRef.current ||
+        anyBatchActiveRef.current
+      ) {
+        return
+      }
+      const taskId = TASK_IDS.douyinSingle(item.awemeId)
+      const title = item.desc || item.awemeId
+      setDownloadingId(item.awemeId)
+      upsertTask({
+        id: taskId,
+        source: 'douyin',
+        sourceLabel: '抖音下载器',
+        title: '下载视频',
+        detail: title,
+        status: 'running',
+      })
+      try {
+        const result = await downloadAweme({
+          awemeId: item.awemeId,
+          playUrl: item.playUrl,
+          playUrls: item.playUrlCandidates,
+          title,
+          kind,
+        })
+        setLastPath(result.path)
+        onDownloaded({
+          awemeId: item.awemeId,
+          kind: kindFolder(kind),
+          path: result.path,
+          title,
+          downloadedAt: Math.floor(Date.now() / 1000),
+        })
+        upsertTask({
+          id: taskId,
+          source: 'douyin',
+          sourceLabel: '抖音下载器',
+          title: '下载视频',
+          detail: `已保存：${title}`,
+          status: 'success',
+        })
+        toast(`已下载到 downloads/抖音/${kindFolder(kind)}`, 'success')
+      } catch (e) {
+        const message = e instanceof Error ? e.message : String(e)
+        upsertTask({
+          id: taskId,
+          source: 'douyin',
+          sourceLabel: '抖音下载器',
+          title: '下载视频',
+          detail: message,
+          status: 'error',
+        })
+        toast(message, 'danger')
+      } finally {
+        setDownloadingId(null)
+      }
+    },
+    [kind, onDownloaded, toast],
+  )
+
+  const handleUnlike = useCallback(
+    async (item: DouyinAweme) => {
+      if (kind !== 'favorite' || unlikingIdRef.current || anyBatchActiveRef.current) {
+        return
+      }
+      const ok = window.confirm(
+        `确定取消喜欢「${item.desc || item.awemeId}」？\n此操作会同步到抖音账号。`,
+      )
+      if (!ok) return
+      setUnlikingId(item.awemeId)
+      try {
+        await unlikeAweme(item.awemeId)
+        await onRefreshAfterUnlike()
+        if (selectedRef.current?.awemeId === item.awemeId) setSelected(null)
+        toast('已取消喜欢', 'success')
+      } catch (e) {
+        toast(e instanceof Error ? e.message : String(e), 'danger')
+      } finally {
+        setUnlikingId(null)
+      }
+    },
+    [kind, onRefreshAfterUnlike, toast],
+  )
+
+  const handleSelect = useCallback((item: DouyinAweme) => {
+    setSelected(item)
+  }, [])
 
   const selectedDownloaded = selected ? downloadedById.get(selected.awemeId) : undefined
 
+  // 批量跟滚：用虚拟列表定位，instant 滚动避免 smooth 叠加重绘
   useEffect(() => {
     if (!followActiveId) return
-    const row = rowRefs.current.get(followActiveId)
-    const root = scrollRef.current
-    if (!row || !root) return
-    const rowTop = row.offsetTop
-    const rowBottom = rowTop + row.offsetHeight
-    const viewTop = root.scrollTop
-    const viewBottom = viewTop + root.clientHeight
-    const margin = 48
-    if (rowTop < viewTop + margin) {
-      root.scrollTo({ top: Math.max(0, rowTop - margin), behavior: 'smooth' })
-    } else if (rowBottom > viewBottom - margin) {
-      root.scrollTo({
-        top: rowBottom - root.clientHeight + margin,
-        behavior: 'smooth',
-      })
-    }
-  }, [followActiveId, followPhase, items.length])
+    const index = itemsRef.current.findIndex((item) => item.awemeId === followActiveId)
+    if (index < 0) return
+    scrollToIndex(index, 'auto')
+  }, [followActiveId, followPhase, scrollToIndex])
 
-  // 新数据追加后继续贴底，保持「下拉加载」观感
   useEffect(() => {
     if (followPhase !== 'loadingMore') return
-    const root = scrollRef.current
-    if (!root) return
-
-    const scrollToBottom = () => {
-      const target = Math.max(0, root.scrollHeight - root.clientHeight)
-      root.scrollTo({ top: target, behavior: 'smooth' })
-    }
-
-    scrollToBottom()
-    const t1 = window.setTimeout(scrollToBottom, 120)
-    const t2 = window.setTimeout(scrollToBottom, 320)
-    return () => {
-      window.clearTimeout(t1)
-      window.clearTimeout(t2)
-    }
-  }, [followPhase, followLoadMoreUsed, items.length])
+    const last = items.length - 1
+    if (last < 0) return
+    scrollToIndex(last, 'end')
+  }, [followPhase, followLoadMoreUsed, items.length, scrollToIndex])
 
   useEffect(() => {
     if (anyBatchActive && selected) setSelected(null)
@@ -324,12 +350,23 @@ export function AwemePanel({
     return () => observer.disconnect()
   }, [hasMore, loading, items.length, anyBatchActive])
 
-  const pendingCount = items.filter(
-    (item) =>
-      !downloadedById.has(item.awemeId) && !batch.skippedById.has(item.awemeId),
-  ).length
+  const pendingCount = useMemo(
+    () =>
+      items.reduce((n, item) => {
+        if (downloadedById.has(item.awemeId) || batch.skippedById.has(item.awemeId)) {
+          return n
+        }
+        return n + 1
+      }, 0),
+    [items, downloadedById, batch.skippedById],
+  )
   const busySingle = downloadingId !== null || unlikingId !== null
   const controlsLocked = anyBatchActive || busySingle
+  anyBatchActiveRef.current = anyBatchActive
+  downloadingIdRef.current = downloadingId
+  unlikingIdRef.current = unlikingId
+  selectedRef.current = selected
+  const virtualItems = rowVirtualizer.getVirtualItems()
 
   const handleBatchClick = () => {
     if (batch.isActive) {
@@ -547,6 +584,24 @@ export function AwemePanel({
             )}
         </header>
 
+        {items.length > 0 && (
+          <div
+            role="row"
+            className="grid shrink-0 border-b border-border-subtle bg-surface px-0 text-[10px] uppercase tracking-wider text-subtle"
+            style={{ gridTemplateColumns: gridTemplate }}
+          >
+            <div className="px-2 py-2 text-right font-medium">#</div>
+            <div className="px-3 py-2 font-medium">封面</div>
+            <div className="px-2 py-2 font-medium">内容</div>
+            <div className="px-2 py-2 font-medium">作者</div>
+            <div className="px-2 py-2 text-right font-medium">点赞</div>
+            <div className="px-2 py-2 text-right font-medium">时长</div>
+            <div className="whitespace-nowrap px-3 py-2 text-right font-medium">
+              操作
+            </div>
+          </div>
+        )}
+
         <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto">
           {loading && items.length === 0 && (
             <p className="px-4 py-10 text-center text-xs text-muted">加载中…</p>
@@ -560,169 +615,48 @@ export function AwemePanel({
             <p className="px-4 py-10 text-center text-xs text-muted">暂无内容</p>
           )}
           {items.length > 0 && (
-            <table className="w-full table-fixed text-left text-xs">
-              <colgroup>
-                <col style={{ width: '2.75rem' }} />
-                <col style={{ width: '3.25rem' }} />
-                <col />
-                <col style={{ width: '5.5rem' }} />
-                <col style={{ width: '4.5rem' }} />
-                <col style={{ width: '4rem' }} />
-                <col style={{ width: kind === 'favorite' ? '15.5rem' : '9.5rem' }} />
-              </colgroup>
-              <thead className="sticky top-0 z-10 bg-surface/95 backdrop-blur-sm">
-                <tr className="border-b border-border-subtle text-[10px] uppercase tracking-wider text-subtle">
-                  <th className="px-2 py-2 text-right font-medium">#</th>
-                  <th className="px-3 py-2 font-medium">封面</th>
-                  <th className="px-2 py-2 font-medium">内容</th>
-                  <th className="px-2 py-2 font-medium">作者</th>
-                  <th className="px-2 py-2 text-right font-medium">点赞</th>
-                  <th className="px-2 py-2 text-right font-medium">时长</th>
-                  <th className="whitespace-nowrap px-3 py-2 text-right font-medium">操作</th>
-                </tr>
-              </thead>
-              <tbody>
-                {items.map((item, index) => {
-                  const downloaded = downloadedById.get(item.awemeId)
-                  const skipped = batch.skippedById.get(item.awemeId)
-                  const busyDownload =
-                    downloadingId === item.awemeId || batch.activeId === item.awemeId
-                  const busyUnlike =
-                    unlikingId === item.awemeId || batchUnlike.activeId === item.awemeId
-                  const isBatchTarget =
-                    batch.activeId === item.awemeId ||
-                    batchUnlike.activeId === item.awemeId
-                  return (
-                    <tr
-                      key={item.awemeId}
-                      ref={(el) => {
-                        if (el) rowRefs.current.set(item.awemeId, el)
-                        else rowRefs.current.delete(item.awemeId)
-                      }}
-                      onClick={() => {
-                        if (!anyBatchActive) setSelected(item)
-                      }}
-                      className={`border-b border-border-subtle/60 transition-colors duration-200 ${
-                        anyBatchActive
-                          ? 'cursor-default'
-                          : 'cursor-pointer hover:bg-surface-hover/50'
-                      } ${isBatchTarget ? 'bg-surface-hover/70' : ''}`}
-                    >
-                      <td className="px-2 py-2.5 text-right tabular-nums text-subtle">
-                        {index + 1}
-                      </td>
-                      <td className="px-3 py-2.5">
-                        {item.coverUrl ? (
-                          <img
-                            src={item.coverUrl}
-                            alt=""
-                            className="h-10 w-8 rounded-md object-cover"
-                            loading="lazy"
-                            referrerPolicy="no-referrer"
-                          />
-                        ) : (
-                          <div className="h-10 w-8 rounded-md bg-surface-hover" />
-                        )}
-                      </td>
-                      <td className="min-w-0 px-2 py-2.5">
-                        <p className="line-clamp-2 font-medium text-foreground">
-                          {item.desc || `未命名 ${index + 1}`}
-                        </p>
-                      </td>
-                      <td className="truncate px-2 py-2.5 text-muted">
-                        {item.authorName || '—'}
-                      </td>
-                      <td className="px-2 py-2.5 text-right tabular-nums text-subtle">
-                        {formatCount(item.diggCount)}
-                      </td>
-                      <td className="px-2 py-2.5 text-right tabular-nums text-subtle">
-                        {formatDuration(item.durationMs)}
-                      </td>
-                      <td
-                        className="whitespace-nowrap px-3 py-2.5 text-right"
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        <div className="flex flex-nowrap items-center justify-end gap-1">
-                          {kind === 'favorite' && (
-                            <button
-                              type="button"
-                              disabled={controlsLocked && !busyUnlike}
-                              onClick={() => void handleUnlike(item)}
-                              aria-busy={busyUnlike}
-                              className={`inline-flex h-7 shrink-0 items-center gap-1 whitespace-nowrap rounded-lg px-2 text-[11px] transition-colors duration-200 ${
-                                busyUnlike
-                                  ? 'cursor-wait text-danger'
-                                  : 'text-danger/80 hover:bg-danger/10 hover:text-danger disabled:cursor-not-allowed disabled:opacity-40'
-                              }`}
-                              title="取消喜欢"
-                            >
-                              <FontAwesomeIcon
-                                icon={busyUnlike ? faSpinner : faHeart}
-                                className={`h-3 w-3 ${busyUnlike ? 'animate-spin' : ''}`}
-                              />
-                              {busyUnlike ? '取消中' : '取消喜欢'}
-                            </button>
-                          )}
-                          {downloaded ? (
-                            <>
-                              <span
-                                className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap px-1.5 text-[11px] text-success"
-                                title={downloaded.path}
-                              >
-                                <FontAwesomeIcon icon={faCircleCheck} className="h-3 w-3" />
-                                已下载
-                              </span>
-                              <button
-                                type="button"
-                                onClick={() => void revealItemInDir(downloaded.path)}
-                                className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-muted transition-colors hover:bg-background hover:text-foreground"
-                                title="打开文件位置"
-                                aria-label="打开文件位置"
-                              >
-                                <FontAwesomeIcon icon={faFolderOpen} className="h-3 w-3" />
-                              </button>
-                            </>
-                          ) : (
-                            <>
-                              {skipped && (
-                                <span
-                                  className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap px-1.5 text-[11px] text-danger/80"
-                                  title={skipped}
-                                >
-                                  <FontAwesomeIcon
-                                    icon={faTriangleExclamation}
-                                    className="h-3 w-3"
-                                  />
-                                  已跳过
-                                </span>
-                              )}
-                              <button
-                                type="button"
-                                disabled={controlsLocked}
-                                onClick={() => void handleDownload(item)}
-                                aria-busy={busyDownload}
-                                className={`inline-flex h-7 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg px-2.5 text-[11px] transition-colors duration-200 ${
-                                  busyDownload
-                                    ? 'cursor-wait text-foreground'
-                                    : 'text-muted hover:bg-background hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40'
-                                }`}
-                                title={skipped ? '手动重试下载' : undefined}
-                              >
-                                <FontAwesomeIcon
-                                  icon={busyDownload ? faSpinner : faSatelliteDish}
-                                  className={`h-3 w-3 ${busyDownload ? 'animate-spin' : ''}`}
-                                />
-                                {busyDownload ? '下载中' : skipped ? '重试' : '下载'}
-                              </button>
-                            </>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
+            <div
+              role="rowgroup"
+              className="relative w-full"
+              style={{ height: rowVirtualizer.getTotalSize() }}
+            >
+              {virtualItems.map((virtualRow) => {
+                const item = items[virtualRow.index]
+                if (!item) return null
+                const downloaded = downloadedById.get(item.awemeId)
+                const skipped = batch.skippedById.get(item.awemeId)
+                const busyDownload =
+                  downloadingId === item.awemeId || batch.activeId === item.awemeId
+                const busyUnlike =
+                  unlikingId === item.awemeId || batchUnlike.activeId === item.awemeId
+                const isBatchTarget =
+                  batch.activeId === item.awemeId ||
+                  batchUnlike.activeId === item.awemeId
+                return (
+                  <AwemeRow
+                    key={item.awemeId}
+                    item={item}
+                    index={virtualRow.index}
+                    kind={kind}
+                    downloaded={downloaded}
+                    skipped={skipped}
+                    busyDownload={busyDownload}
+                    busyUnlike={busyUnlike}
+                    isBatchTarget={isBatchTarget}
+                    anyBatchActive={anyBatchActive}
+                    controlsLocked={controlsLocked}
+                    onSelect={handleSelect}
+                    onDownload={handleDownload}
+                    onUnlike={handleUnlike}
+                    style={{
+                      height: virtualRow.size,
+                      transform: `translateY(${virtualRow.start}px)`,
+                      gridTemplateColumns: gridTemplate,
+                    }}
+                  />
+                )
+              })}
+            </div>
           )}
 
           {items.length > 0 && (
