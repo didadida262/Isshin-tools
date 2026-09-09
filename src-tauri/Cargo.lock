@@ -1936,7 +1936,7 @@ dependencies = [
 
 [[package]]
 name = "isshin-tools"
-version = "1.0.9"
+version = "1.0.10"
 dependencies = [
  "aes",
  "base64 0.22.1",
