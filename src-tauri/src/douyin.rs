@@ -947,6 +947,31 @@ pub async fn douyin_unlike(app: AppHandle, aweme_id: String) -> Result<(), Strin
     expect_ok_status(&body, "取消喜欢失败")
 }
 
+fn find_downloaded_by_aweme_id(kind_dir: &Path, aweme_id: &str) -> Option<PathBuf> {
+    let rd = std::fs::read_dir(kind_dir).ok()?;
+    let mid = format!("_{aweme_id}_");
+    let prefix = format!("{aweme_id}_");
+    let mut matched = Vec::new();
+    for ent in rd.flatten() {
+        let name = ent.file_name();
+        let name = name.to_string_lossy();
+        if !(name.contains(&mid) || name.starts_with(&prefix)) {
+            continue;
+        }
+        let path = ent.path();
+        if path.is_file() {
+            matched.push(path);
+        }
+    }
+    // Prefer seq-prefixed names (`0001_…`) over bare `{id}_…`.
+    matched.sort_by(|a, b| {
+        let an = a.file_name().and_then(|n| n.to_str()).unwrap_or("");
+        let bn = b.file_name().and_then(|n| n.to_str()).unwrap_or("");
+        an.cmp(bn)
+    });
+    matched.into_iter().next()
+}
+
 #[tauri::command]
 pub async fn douyin_list_downloaded(app: AppHandle) -> Result<Vec<DouyinDownloadedEntry>, String> {
     let root = resolve_download_root(&app)?;
@@ -956,10 +981,21 @@ pub async fn douyin_list_downloaded(app: AppHandle) -> Result<Vec<DouyinDownload
     let mut changed = false;
     let keys: Vec<String> = index.entries.keys().cloned().collect();
     for key in keys {
-        let Some(entry) = index.entries.get(&key).cloned() else {
+        let Some(mut entry) = index.entries.get(&key).cloned() else {
             continue;
         };
         if Path::new(&entry.path).is_file() {
+            alive.push(entry);
+            continue;
+        }
+        // Path may be stale after seq rename / extension sniff; recover by id.
+        let kind_folder = normalize_kind_folder(&entry.kind);
+        let kind_dir = root.join(kind_folder);
+        if let Some(found) = find_downloaded_by_aweme_id(&kind_dir, &entry.aweme_id) {
+            entry.path = found.to_string_lossy().to_string();
+            entry.kind = kind_folder.to_string();
+            index.entries.insert(key, entry.clone());
+            changed = true;
             alive.push(entry);
         } else {
             index.entries.remove(&key);

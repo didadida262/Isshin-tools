@@ -121,3 +121,36 @@ body {
 .gold-banner-sweep {
   animation: gold-banner-sweep 1.8s ease-in-out infinite;
 }
+
+.music-seek::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 9999px;
+  background: #fff;
+  box-shadow: 0 0 0 3px rgba(0, 0, 0, 0.25);
+  cursor: pointer;
+}
+
+.music-seek::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  border: none;
+  border-radius: 9999px;
+  background: #fff;
+  cursor: pointer;
+}
+
+@keyframes music-disc-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.music-disc-spin {
+  animation: music-disc-spin 14s linear infinite;
+}

@@ -16,7 +16,6 @@ import {
   faTriangleExclamation,
   faXmark,
 } from '@fortawesome/free-solid-svg-icons'
-import { revealItemInDir } from '@tauri-apps/plugin-opener'
 import { ErrorState } from '@/components/ErrorState'
 import { useToast } from '@/components/Toast'
 import { useToolVisible } from '@/shell/ToolVisibility'
@@ -28,12 +27,14 @@ import { kindFolder } from '../hooks/useDownloadedAweme'
 import type { LoadMoreOutcome } from '../hooks/useAwemeList'
 import type { DouyinAweme, DouyinDownloadedEntry, DouyinListKind } from '../types'
 import { kindBatchDownloadLabel, kindLabel, isMusicKind } from '../lib/kindLabel'
+import { revealDownloaded } from '../lib/revealDownloaded'
 import { awemeSeq, chronologicalAwemeIds } from '../lib/awemeOrder'
 import {
   AWEME_ROW_HEIGHT,
   AwemeRow,
   awemeGridTemplate,
 } from './AwemeRow'
+import { MusicPreviewDialog } from './MusicPreviewDialog'
 
 interface AwemePanelProps {
   kind: DouyinListKind
@@ -186,7 +187,9 @@ export function AwemePanel({
     }
     const first = items[0]?.awemeId ?? ''
     const last = items[items.length - 1]?.awemeId ?? ''
-    const key = `${kind}:${items.length}:${first}:${last}`
+    // Include download count so seq re-runs after batch download finishes
+    // (list may complete before any files exist on disk).
+    const key = `${kind}:${items.length}:${first}:${last}:dl${downloadedById.size}`
     if (appliedSeqKey.current === key) return
     appliedSeqKey.current = key
     void applyAwemeSeq(kind, chronologicalAwemeIds(items))
@@ -209,6 +212,7 @@ export function AwemePanel({
     anyBatchActive,
     seqRenaming,
     items,
+    downloadedById.size,
     onReloadDownloaded,
     toast,
   ])
@@ -278,7 +282,7 @@ export function AwemePanel({
         return
       }
       const ids = chronologicalAwemeIds(list)
-      appliedSeqKey.current = `${kind}:${list.length}:${list[0]?.awemeId}:${list[list.length - 1]?.awemeId}`
+      appliedSeqKey.current = `${kind}:${list.length}:${list[0]?.awemeId}:${list[list.length - 1]?.awemeId}:dl${downloadedByIdRef.current.size}`
       await runSeqRename(ids)
     } catch (e) {
       toast(e instanceof Error ? e.message : String(e), 'danger')
@@ -339,10 +343,36 @@ export function AwemePanel({
     }
   }, [selected, kind])
 
+  const goPreviewOffset = useCallback(
+    (delta: number) => {
+      const list = itemsRef.current
+      const currentId = selectedRef.current?.awemeId
+      const index = currentId
+        ? list.findIndex((item) => item.awemeId === currentId)
+        : -1
+      if (index < 0) return
+      const nextIndex = index + delta
+      if (nextIndex < 0 || nextIndex >= list.length) return
+      const next = list[nextIndex]
+      if (!next) return
+      setSelected(next)
+      scrollToIndex(nextIndex, 'auto')
+    },
+    [scrollToIndex],
+  )
+
   useEffect(() => {
     if (!selected) return
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setSelected(null)
+      if (e.key === 'Escape') {
+        setSelected(null)
+        return
+      }
+      if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return
+      const tag = (e.target as HTMLElement | null)?.tagName
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return
+      e.preventDefault()
+      goPreviewOffset(e.key === 'ArrowUp' ? -1 : 1)
     }
     window.addEventListener('keydown', onKey)
     const prev = document.body.style.overflow
@@ -351,7 +381,7 @@ export function AwemePanel({
       window.removeEventListener('keydown', onKey)
       document.body.style.overflow = prev
     }
-  }, [selected])
+  }, [selected, goPreviewOffset])
 
   const handleDownload = useCallback(
     async (item: DouyinAweme) => {
@@ -447,7 +477,21 @@ export function AwemePanel({
     setSelected(item)
   }, [])
 
+  const handleReveal = useCallback(
+    (entry: DouyinDownloadedEntry) => {
+      void revealDownloaded(entry, kind, onDownloaded).catch((e) => {
+        const message = e instanceof Error ? e.message : String(e)
+        toast(`无法打开文件位置：${message}`, 'danger')
+        void onReloadDownloaded()
+      })
+    },
+    [kind, onDownloaded, onReloadDownloaded, toast],
+  )
+
   const selectedDownloaded = selected ? downloadedById.get(selected.awemeId) : undefined
+  const selectedIndex = selected
+    ? items.findIndex((item) => item.awemeId === selected.awemeId)
+    : -1
 
   // 批量跟滚：用虚拟列表定位，instant 滚动避免 smooth 叠加重绘
   useEffect(() => {
@@ -798,6 +842,7 @@ export function AwemePanel({
                     onSelect={handleSelect}
                     onDownload={handleDownload}
                     onUnlike={handleUnlike}
+                    onReveal={handleReveal}
                     style={{
                       height: virtualRow.size,
                       transform: `translateY(${virtualRow.start}px)`,
@@ -845,71 +890,84 @@ export function AwemePanel({
                 <button
                   type="button"
                   aria-label="关闭"
-                  className="absolute inset-0 bg-black/55"
+                  className="absolute inset-0 bg-black/60 backdrop-blur-[2px]"
                   onClick={() => setSelected(null)}
                 />
-                <motion.div
-                  role="dialog"
-                  aria-modal="true"
-                  aria-labelledby="aweme-preview-title"
-                  initial={{ opacity: 0, y: 10, scale: 0.98 }}
-                  animate={{ opacity: 1, y: 0, scale: 1 }}
-                  exit={{ opacity: 0, y: 8, scale: 0.98 }}
-                  transition={{ duration: 0.18, ease: 'easeOut' }}
-                  className="relative z-10 flex h-[min(88vh,720px)] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-border bg-surface shadow-xl"
-                >
-                  <div className="flex shrink-0 items-start justify-between gap-3 border-b border-border-subtle px-5 py-4">
-                    <div className="min-w-0">
-                      <h2
-                        id="aweme-preview-title"
-                        className="font-display text-base font-semibold tracking-tight text-foreground"
+                {isMusicKind(kind) ? (
+                  <MusicPreviewDialog
+                    item={selected}
+                    previewSrc={previewSrc}
+                    previewLoading={previewLoading}
+                    previewError={previewError}
+                    downloaded={selectedDownloaded}
+                    downloading={downloadingId === selected.awemeId}
+                    controlsLocked={controlsLocked}
+                    canReveal={!!(lastPath || selectedDownloaded?.path)}
+                    hasPrev={selectedIndex > 0}
+                    hasNext={selectedIndex >= 0 && selectedIndex < items.length - 1}
+                    onClose={() => setSelected(null)}
+                    onPrev={() => goPreviewOffset(-1)}
+                    onNext={() => goPreviewOffset(1)}
+                    onDownload={() => void handleDownload(selected)}
+                    onReveal={() => {
+                      const entry =
+                        selectedDownloaded ??
+                        (lastPath
+                          ? {
+                              awemeId: selected.awemeId,
+                              kind: kindFolder(kind),
+                              path: lastPath,
+                              title: selected.desc || selected.awemeId,
+                              downloadedAt: Math.floor(Date.now() / 1000),
+                            }
+                          : null)
+                      if (entry) handleReveal(entry)
+                    }}
+                  />
+                ) : (
+                  <motion.div
+                    role="dialog"
+                    aria-modal="true"
+                    aria-labelledby="aweme-preview-title"
+                    initial={{ opacity: 0, y: 10, scale: 0.98 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, y: 8, scale: 0.98 }}
+                    transition={{ duration: 0.18, ease: 'easeOut' }}
+                    className="relative z-10 flex h-[min(88vh,720px)] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-border bg-surface shadow-xl"
+                  >
+                    <div className="flex shrink-0 items-start justify-between gap-3 border-b border-border-subtle px-5 py-4">
+                      <div className="min-w-0">
+                        <h2
+                          id="aweme-preview-title"
+                          className="font-display text-base font-semibold tracking-tight text-foreground"
+                        >
+                          视频预览
+                        </h2>
+                        <p className="mt-1 line-clamp-2 text-xs text-muted">
+                          {selected.desc || selected.awemeId}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setSelected(null)}
+                        className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-subtle transition-colors hover:bg-surface-hover hover:text-foreground"
+                        aria-label="关闭弹框"
                       >
-                        {isMusicKind(kind) ? '音乐预览' : '视频预览'}
-                      </h2>
-                      <p className="mt-1 line-clamp-2 text-xs text-muted">
-                        {selected.desc || selected.awemeId}
-                      </p>
+                        <FontAwesomeIcon icon={faXmark} className="h-3.5 w-3.5" />
+                      </button>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => setSelected(null)}
-                      className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-subtle transition-colors hover:bg-surface-hover hover:text-foreground"
-                      aria-label="关闭弹框"
-                    >
-                      <FontAwesomeIcon icon={faXmark} className="h-3.5 w-3.5" />
-                    </button>
-                  </div>
 
-                  <div className="flex min-h-0 flex-1 items-center justify-center bg-black/40 p-4">
-                    {previewLoading && (
-                      <p className="flex items-center gap-2 text-xs text-muted">
-                        <FontAwesomeIcon icon={faSpinner} className="h-3 w-3 animate-spin" />
-                        加载预览…
-                      </p>
-                    )}
-                    {!previewLoading && previewError && (
-                      <p className="px-4 text-center text-xs text-danger">{previewError}</p>
-                    )}
-                    {!previewLoading && !previewError && previewSrc ? (
-                      isMusicKind(kind) ? (
-                        <div className="flex w-full max-w-md flex-col items-center gap-4 px-2">
-                          {selected.coverUrl ? (
-                            <img
-                              src={selected.coverUrl}
-                              alt=""
-                              className="h-40 w-40 rounded-2xl object-cover shadow-lg"
-                              referrerPolicy="no-referrer"
-                            />
-                          ) : null}
-                          <audio
-                            key={previewSrc}
-                            src={previewSrc}
-                            controls
-                            autoPlay
-                            className="w-full"
-                          />
-                        </div>
-                      ) : (
+                    <div className="flex min-h-0 flex-1 items-center justify-center bg-black/40 p-4">
+                      {previewLoading && (
+                        <p className="flex items-center gap-2 text-xs text-muted">
+                          <FontAwesomeIcon icon={faSpinner} className="h-3 w-3 animate-spin" />
+                          加载预览…
+                        </p>
+                      )}
+                      {!previewLoading && previewError && (
+                        <p className="px-4 text-center text-xs text-danger">{previewError}</p>
+                      )}
+                      {!previewLoading && !previewError && previewSrc ? (
                         <video
                           key={previewSrc}
                           src={previewSrc}
@@ -919,74 +977,75 @@ export function AwemePanel({
                           className="h-full max-h-full w-auto max-w-full rounded-xl object-contain"
                           poster={selected.coverUrl || undefined}
                         />
-                      )
-                    ) : null}
-                  </div>
-
-                  <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-t border-border-subtle px-5 py-3">
-                    <div className="min-w-0 text-[11px] text-subtle">
-                      {selected.authorName || '未知作者'}
-                      <span className="mx-1">·</span>
-                      {formatDuration(selected.durationMs)}
-                      {!isMusicKind(kind) && (
-                        <>
-                          <span className="mx-1">·</span>
-                          {formatCount(selected.diggCount)} 赞
-                        </>
-                      )}
-                      {isMusicKind(kind) && selected.diggCount > 0 && (
-                        <>
-                          <span className="mx-1">·</span>
-                          {formatCount(selected.diggCount)} 次使用
-                        </>
-                      )}
+                      ) : null}
                     </div>
-                    <div className="flex items-center gap-2">
-                      {(lastPath || selectedDownloaded?.path) && (
+
+                    <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-t border-border-subtle px-5 py-3">
+                      <div className="min-w-0 text-[11px] text-subtle">
+                        {selected.authorName || '未知作者'}
+                        <span className="mx-1">·</span>
+                        {formatDuration(selected.durationMs)}
+                        <span className="mx-1">·</span>
+                        {formatCount(selected.diggCount)} 赞
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {(lastPath || selectedDownloaded?.path) && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const entry =
+                                selectedDownloaded ??
+                                (lastPath
+                                  ? {
+                                      awemeId: selected.awemeId,
+                                      kind: kindFolder(kind),
+                                      path: lastPath,
+                                      title: selected.desc || selected.awemeId,
+                                      downloadedAt: Math.floor(Date.now() / 1000),
+                                    }
+                                  : null)
+                              if (entry) handleReveal(entry)
+                            }}
+                            className="inline-flex items-center gap-1.5 text-[11px] text-muted transition-colors hover:text-foreground"
+                          >
+                            <FontAwesomeIcon icon={faFolderOpen} className="h-3 w-3" />
+                            打开目录
+                          </button>
+                        )}
                         <button
                           type="button"
-                          onClick={() =>
-                            void revealItemInDir(lastPath || selectedDownloaded!.path)
-                          }
-                          className="inline-flex items-center gap-1.5 text-[11px] text-muted transition-colors hover:text-foreground"
-                        >
-                          <FontAwesomeIcon icon={faFolderOpen} className="h-3 w-3" />
-                          打开目录
-                        </button>
-                      )}
-                      <button
-                        type="button"
-                        disabled={!!selectedDownloaded || controlsLocked}
-                        onClick={() => void handleDownload(selected)}
-                        className={`inline-flex h-8 min-w-[5.5rem] items-center justify-center gap-1.5 rounded-xl border px-3 text-[11px] transition-all ${
-                          selectedDownloaded
-                            ? 'cursor-default border-success/35 bg-success/15 text-success'
-                            : downloadingId === selected.awemeId
-                              ? 'cursor-wait border-muted bg-surface-hover text-foreground'
-                              : 'border-border bg-background text-foreground hover:border-muted hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-40'
-                        }`}
-                      >
-                        <FontAwesomeIcon
-                          icon={
+                          disabled={!!selectedDownloaded || controlsLocked}
+                          onClick={() => void handleDownload(selected)}
+                          className={`inline-flex h-8 min-w-[5.5rem] items-center justify-center gap-1.5 rounded-xl border px-3 text-[11px] transition-all ${
                             selectedDownloaded
-                              ? faCircleCheck
+                              ? 'cursor-default border-success/35 bg-success/15 text-success'
                               : downloadingId === selected.awemeId
-                                ? faSpinner
-                                : faDownload
-                          }
-                          className={`h-3 w-3 ${
-                            downloadingId === selected.awemeId ? 'animate-spin' : ''
+                                ? 'cursor-wait border-muted bg-surface-hover text-foreground'
+                                : 'border-border bg-background text-foreground hover:border-muted hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-40'
                           }`}
-                        />
-                        {selectedDownloaded
-                          ? '已下载'
-                          : downloadingId === selected.awemeId
-                            ? '下载中'
-                            : '下载'}
-                      </button>
+                        >
+                          <FontAwesomeIcon
+                            icon={
+                              selectedDownloaded
+                                ? faCircleCheck
+                                : downloadingId === selected.awemeId
+                                  ? faSpinner
+                                  : faDownload
+                            }
+                            className={`h-3 w-3 ${
+                              downloadingId === selected.awemeId ? 'animate-spin' : ''
+                            }`}
+                          />
+                          {selectedDownloaded
+                            ? '已下载'
+                            : downloadingId === selected.awemeId
+                              ? '下载中'
+                              : '下载'}
+                        </button>
+                      </div>
                     </div>
-                  </div>
-                </motion.div>
+                  </motion.div>
+                )}
               </motion.div>
             )}
           </AnimatePresence>,

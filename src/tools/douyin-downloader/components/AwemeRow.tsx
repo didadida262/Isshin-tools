@@ -8,7 +8,6 @@ import {
   faSpinner,
   faTriangleExclamation,
 } from '@fortawesome/free-solid-svg-icons'
-import { revealItemInDir } from '@tauri-apps/plugin-opener'
 import type { DouyinAweme, DouyinDownloadedEntry, DouyinListKind } from '../types'
 
 export const AWEME_ROW_HEIGHT = 64
@@ -48,6 +47,7 @@ export interface AwemeRowProps {
   onSelect: (item: DouyinAweme) => void
   onDownload: (item: DouyinAweme) => void
   onUnlike: (item: DouyinAweme) => void
+  onReveal: (entry: DouyinDownloadedEntry) => void
 }
 
 export const AwemeRow = memo(function AwemeRow({
@@ -65,6 +65,7 @@ export const AwemeRow = memo(function AwemeRow({
   onSelect,
   onDownload,
   onUnlike,
+  onReveal,
 }: AwemeRowProps) {
   return (
     <div
@@ -148,7 +149,10 @@ export const AwemeRow = memo(function AwemeRow({
               </span>
               <button
                 type="button"
-                onClick={() => void revealItemInDir(downloaded.path)}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  onReveal(downloaded)
+                }}
                 className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-muted transition-colors hover:bg-background hover:text-foreground"
                 title="打开文件位置"
                 aria-label="打开文件位置"
