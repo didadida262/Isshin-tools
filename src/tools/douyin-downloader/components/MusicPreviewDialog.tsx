@@ -189,7 +189,10 @@ export function MusicPreviewDialog({
                 autoPlay
                 onPlay={() => setPlaying(true)}
                 onPause={() => setPlaying(false)}
-                onEnded={() => setPlaying(false)}
+                onEnded={() => {
+                  setPlaying(false)
+                  if (hasNext) onNext()
+                }}
                 onLoadedMetadata={(e) => {
                   const d = e.currentTarget.duration
                   if (Number.isFinite(d) && d > 0) setDuration(d)
