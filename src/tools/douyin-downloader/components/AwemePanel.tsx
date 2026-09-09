@@ -27,6 +27,7 @@ import { useBatchUnlike } from '../hooks/useBatchUnlike'
 import { kindFolder } from '../hooks/useDownloadedAweme'
 import type { LoadMoreOutcome } from '../hooks/useAwemeList'
 import type { DouyinAweme, DouyinDownloadedEntry, DouyinListKind } from '../types'
+import { kindBatchDownloadLabel, kindLabel, isMusicKind } from '../lib/kindLabel'
 import { awemeSeq, chronologicalAwemeIds } from '../lib/awemeOrder'
 import {
   AWEME_ROW_HEIGHT,
@@ -311,11 +312,18 @@ export function AwemePanel({
           awemeId: selected.awemeId,
           playUrl: selected.playUrl,
           playUrls: selected.playUrlCandidates,
+          kind,
         })
-        // blob URL：WKWebView 下 convertFileSrc(asset://) 经常无法播放本地 mp4
+        // blob URL：WKWebView 下 convertFileSrc(asset://) 经常无法播放本地文件
         const bytes = await readFile(path)
         if (cancelled) return
-        const blob = new Blob([bytes], { type: 'video/mp4' })
+        const lower = path.toLowerCase()
+        const mime = isMusicKind(kind)
+          ? lower.endsWith('.m4a')
+            ? 'audio/mp4'
+            : 'audio/mpeg'
+          : 'video/mp4'
+        const blob = new Blob([bytes], { type: mime })
         objectUrl = URL.createObjectURL(blob)
         setPreviewSrc(objectUrl)
       } catch (e) {
@@ -329,7 +337,7 @@ export function AwemePanel({
       cancelled = true
       if (objectUrl) URL.revokeObjectURL(objectUrl)
     }
-  }, [selected])
+  }, [selected, kind])
 
   useEffect(() => {
     if (!selected) return
@@ -362,7 +370,7 @@ export function AwemePanel({
         id: taskId,
         source: 'douyin',
         sourceLabel: '抖音下载器',
-        title: '下载视频',
+        title: isMusicKind(kind) ? '下载音乐' : '下载视频',
         detail: title,
         status: 'running',
       })
@@ -388,7 +396,7 @@ export function AwemePanel({
           id: taskId,
           source: 'douyin',
           sourceLabel: '抖音下载器',
-          title: '下载视频',
+          title: isMusicKind(kind) ? '下载音乐' : '下载视频',
           detail: `已保存：${title}`,
           status: 'success',
         })
@@ -399,7 +407,7 @@ export function AwemePanel({
           id: taskId,
           source: 'douyin',
           sourceLabel: '抖音下载器',
-          title: '下载视频',
+          title: isMusicKind(kind) ? '下载音乐' : '下载视频',
           detail: message,
           status: 'error',
         })
@@ -500,7 +508,7 @@ export function AwemePanel({
     }
     if (batchUnlike.isActive) return
     if (pendingCount === 0 && !hasMore) {
-      toast('当前没有可下载的视频', 'neutral')
+      toast(isMusicKind(kind) ? '当前没有可下载的音乐' : '当前没有可下载的视频', 'neutral')
       return
     }
     batchUnlike.clearStopBanner()
@@ -534,7 +542,7 @@ export function AwemePanel({
           <div className="flex flex-nowrap items-start justify-between gap-3">
             <div className="min-w-0">
               <p className="text-sm font-medium text-foreground">
-                {kind === 'favorite' ? '喜欢' : '作品'}
+                {kindLabel(kind)}
               </p>
               <p className="mt-0.5 text-[11px] text-subtle">
                 {items.length} 条已加载
@@ -623,9 +631,7 @@ export function AwemePanel({
                     : batch.phase === 'retrying'
                       ? '取消自动重试'
                       : '停止批量'
-                  : kind === 'favorite'
-                    ? '一键下载喜欢'
-                    : '一键下载作品'}
+                  : kindBatchDownloadLabel(kind)}
               </button>
             </div>
           </div>
@@ -732,9 +738,13 @@ export function AwemePanel({
           >
             <div className="px-2 py-2 text-right font-medium">#</div>
             <div className="px-3 py-2 font-medium">封面</div>
-            <div className="px-2 py-2 font-medium">内容</div>
+            <div className="px-2 py-2 font-medium">
+              {isMusicKind(kind) ? '曲名' : '内容'}
+            </div>
             <div className="px-2 py-2 font-medium">作者</div>
-            <div className="px-2 py-2 text-right font-medium">点赞</div>
+            <div className="px-2 py-2 text-right font-medium">
+              {isMusicKind(kind) ? '使用' : '点赞'}
+            </div>
             <div className="px-2 py-2 text-right font-medium">时长</div>
             <div className="whitespace-nowrap px-3 py-2 text-right font-medium">
               操作
@@ -854,7 +864,7 @@ export function AwemePanel({
                         id="aweme-preview-title"
                         className="font-display text-base font-semibold tracking-tight text-foreground"
                       >
-                        视频预览
+                        {isMusicKind(kind) ? '音乐预览' : '视频预览'}
                       </h2>
                       <p className="mt-1 line-clamp-2 text-xs text-muted">
                         {selected.desc || selected.awemeId}
@@ -881,15 +891,35 @@ export function AwemePanel({
                       <p className="px-4 text-center text-xs text-danger">{previewError}</p>
                     )}
                     {!previewLoading && !previewError && previewSrc ? (
-                      <video
-                        key={previewSrc}
-                        src={previewSrc}
-                        controls
-                        autoPlay
-                        playsInline
-                        className="h-full max-h-full w-auto max-w-full rounded-xl object-contain"
-                        poster={selected.coverUrl || undefined}
-                      />
+                      isMusicKind(kind) ? (
+                        <div className="flex w-full max-w-md flex-col items-center gap-4 px-2">
+                          {selected.coverUrl ? (
+                            <img
+                              src={selected.coverUrl}
+                              alt=""
+                              className="h-40 w-40 rounded-2xl object-cover shadow-lg"
+                              referrerPolicy="no-referrer"
+                            />
+                          ) : null}
+                          <audio
+                            key={previewSrc}
+                            src={previewSrc}
+                            controls
+                            autoPlay
+                            className="w-full"
+                          />
+                        </div>
+                      ) : (
+                        <video
+                          key={previewSrc}
+                          src={previewSrc}
+                          controls
+                          autoPlay
+                          playsInline
+                          className="h-full max-h-full w-auto max-w-full rounded-xl object-contain"
+                          poster={selected.coverUrl || undefined}
+                        />
+                      )
                     ) : null}
                   </div>
 
@@ -898,8 +928,18 @@ export function AwemePanel({
                       {selected.authorName || '未知作者'}
                       <span className="mx-1">·</span>
                       {formatDuration(selected.durationMs)}
-                      <span className="mx-1">·</span>
-                      {formatCount(selected.diggCount)} 赞
+                      {!isMusicKind(kind) && (
+                        <>
+                          <span className="mx-1">·</span>
+                          {formatCount(selected.diggCount)} 赞
+                        </>
+                      )}
+                      {isMusicKind(kind) && selected.diggCount > 0 && (
+                        <>
+                          <span className="mx-1">·</span>
+                          {formatCount(selected.diggCount)} 次使用
+                        </>
+                      )}
                     </div>
                     <div className="flex items-center gap-2">
                       {(lastPath || selectedDownloaded?.path) && (

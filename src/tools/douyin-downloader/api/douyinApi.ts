@@ -78,10 +78,12 @@ export async function cachePreview(params: {
   awemeId: string
   playUrl: string
   playUrls?: string[]
+  kind?: DouyinListKind
 }) {
   return invoke<string>('douyin_cache_preview', {
     awemeId: params.awemeId,
     playUrl: params.playUrl,
     playUrls: params.playUrls ?? null,
+    kind: params.kind ?? null,
   })
 }

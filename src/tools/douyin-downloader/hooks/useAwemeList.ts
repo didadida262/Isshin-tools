@@ -28,6 +28,7 @@ export function useAwemeList(secUid: string | null, kind: DouyinListKind) {
   const [byKind, setByKind] = useState<Record<DouyinListKind, KindListState>>({
     favorite: emptyState(),
     post: emptyState(),
+    collect_music: emptyState(),
   })
   const [loadingKind, setLoadingKind] = useState<DouyinListKind | null>(null)
   const reqSeq = useRef(0)
@@ -42,7 +43,11 @@ export function useAwemeList(secUid: string | null, kind: DouyinListKind) {
 
   const reload = useCallback(async (options?: { clear?: boolean }) => {
     if (!secUid) {
-      const empty = { favorite: emptyState(), post: emptyState() }
+      const empty = {
+        favorite: emptyState(),
+        post: emptyState(),
+        collect_music: emptyState(),
+      }
       byKindRef.current = empty
       setByKind(empty)
       setLoadingKind(null)
@@ -176,7 +181,11 @@ export function useAwemeList(secUid: string | null, kind: DouyinListKind) {
 
   useEffect(() => {
     if (!secUid) {
-      setByKind({ favorite: emptyState(), post: emptyState() })
+      setByKind({
+        favorite: emptyState(),
+        post: emptyState(),
+        collect_music: emptyState(),
+      })
       setLoadingKind(null)
       return
     }

@@ -8,6 +8,8 @@ import {
 } from '@/tasks'
 import { downloadAweme } from '../api/douyinApi'
 import { awemeSeq } from '../lib/awemeOrder'
+import { kindLabel } from '../lib/kindLabel'
+import { kindFolder } from './useDownloadedAweme'
 import type { LoadMoreOutcome } from './useAwemeList'
 import type {
   DouyinAweme,
@@ -73,7 +75,11 @@ function looksLikeRiskControl(message: string) {
  */
 function looksLikeItemUnavailable(message: string) {
   const text = message.toLowerCase()
-  return text.includes('media_gone') || message.includes('视频源已不可用')
+  return (
+    text.includes('media_gone') ||
+    message.includes('视频源已不可用') ||
+    message.includes('音源已不可用')
+  )
 }
 
 /**
@@ -217,13 +223,13 @@ export function useBatchDownload({
       return
     }
 
-    const kindLabel = kind === 'favorite' ? '喜欢' : '作品'
+    const kindLabelText = kindLabel(kind)
     const found = activeId ? items.findIndex((item) => item.awemeId === activeId) : -1
     upsertTask({
       id: TASK_IDS.douyinBatch,
       source: 'douyin',
       sourceLabel: '抖音下载器',
-      title: `批量下载${kindLabel}`,
+      title: `批量下载${kindLabelText}`,
       detail: statusText ?? stopMessage ?? '准备中…',
       status: taskStatusFromBatch(phase, stopReason),
       successCount,
@@ -275,8 +281,8 @@ export function useBatchDownload({
     let localSkip = 0
     let localLoadMore = 0
     let consecutiveSkips = 0
-    const folder = kind === 'favorite' ? 'likes' : 'works'
-    const kindLabel = kind === 'favorite' ? '喜欢' : '作品'
+    const folder = kindFolder(kind)
+    const kindLabelText = kindLabel(kind)
 
     const finish = (next: BatchPhase, reason: BatchStopReason, message: string | null) => {
       runningRef.current = false
@@ -301,7 +307,7 @@ export function useBatchDownload({
     const completeMessage = () => {
       const parts: string[] = []
       if (localSuccess > 0) parts.push(`成功下载 ${localSuccess} 个`)
-      if (localSkip > 0) parts.push(`跳过 ${localSkip} 个（视频源不可用）`)
+      if (localSkip > 0) parts.push(`跳过 ${localSkip} 个（媒体源不可用）`)
       if (parts.length === 0) {
         return skippedRef.current.size > 0
           ? '当前列表已全部处理（含已跳过），且没有更多内容'
@@ -317,7 +323,7 @@ export function useBatchDownload({
         if (pending) {
           setPhase('downloading')
           setActiveId(pending.awemeId)
-          setStatusText(`正在下载${kindLabel}：${pending.desc || pending.awemeId}`)
+          setStatusText(`正在下载${kindLabelText}：${pending.desc || pending.awemeId}`)
 
           try {
             const order = hasMoreRef.current

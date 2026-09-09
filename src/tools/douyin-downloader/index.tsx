@@ -25,7 +25,8 @@ export function DouyinDownloaderTool() {
           抖音下载器
         </h1>
         <p className="mt-1 text-xs text-muted">
-          登录后查看作品 / 喜欢 · 下载目录与已下载状态按分类分开 · 一键下载 / 取消喜欢会持续处理直到没有更多内容
+          登录后查看作品 / 喜欢 / 收藏音乐 · 下载目录与已下载状态按分类分开 ·
+          一键下载 / 取消喜欢会持续处理直到没有更多内容
         </p>
       </header>
 
@@ -55,6 +56,13 @@ export function DouyinDownloaderTool() {
               onClick={() => setKind('post')}
             >
               作品
+            </KindTab>
+            <KindTab
+              active={kind === 'collect_music'}
+              disabled={batchActive}
+              onClick={() => setKind('collect_music')}
+            >
+              收藏
             </KindTab>
           </div>
           <div className="relative min-h-0 flex-1 overflow-hidden">
@@ -89,7 +97,7 @@ export function DouyinDownloaderTool() {
       ) : (
         <div className="flex min-h-0 flex-1 items-center justify-center rounded-2xl border border-dashed border-border-subtle">
           <p className="max-w-sm px-6 text-center text-xs leading-relaxed text-muted">
-            登录后将展示你的抖音「作品」与「喜欢」，可预览并下载到本地。
+            登录后将展示你的抖音「作品」「喜欢」与「收藏音乐」，可预览并下载到本地。
           </p>
         </div>
       )}

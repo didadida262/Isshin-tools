@@ -1,4 +1,4 @@
-//! Douyin (抖音) session + works/likes list + download.
+//! Douyin (抖音) session + works/likes/collect-music list + download.
 //!
 //! The list/unlike endpoints are signed by the security SDK running in the
 //! bridge WebView (see [`crate::douyin_bridge`]); only the video/CDN transfers
@@ -228,12 +228,16 @@ fn stale_url_fault(queue: &[String]) -> Option<Vec<String>> {
     (!faulted.is_empty()).then_some(faulted)
 }
 
-/// Walk every mirror, then a freshly resolved set, before giving up.
+/// Walk every mirror, then (for videos) a freshly resolved set, before giving up.
+///
+/// Music ids are not aweme ids — `refresh_play_urls` would hit the wrong API —
+/// so `allow_refresh` must be false for collect-music downloads.
 async fn fetch_media(
     app: &AppHandle,
     aweme_id: &str,
     candidates: &[String],
     label: &str,
+    allow_refresh: bool,
 ) -> Result<Vec<u8>, String> {
     let mut queue: Vec<String> = Vec::new();
     for url in candidates {
@@ -266,7 +270,7 @@ async fn fetch_media(
 
         // Only worth re-resolving once, and only after the cached mirrors are
         // exhausted — a refusal is the signal that they have gone stale.
-        if tried == queue.len() && refresh.is_none() && !refused.is_empty() {
+        if allow_refresh && tried == queue.len() && refresh.is_none() && !refused.is_empty() {
             refresh = Some(match refresh_play_urls(app, aweme_id).await {
                 Ok(fresh) => {
                     for url in &fresh {
@@ -306,6 +310,10 @@ async fn fetch_media(
             "{label}失败: 无法确认视频状态（登录态或签名通道可能已失效）· {} · 刷新播放地址失败: {e}",
             detail.join(" · ")
         )),
+        None if !refused.is_empty() && !allow_refresh => {
+            let text = format!("{label}失败: 音源已不可用 · {}", detail.join(" · "));
+            Err(media_gone(text))
+        }
         None => Err(format!("{label}失败: {}", detail.join(" · "))),
     }
 }
@@ -454,6 +462,79 @@ fn parse_aweme(item: &Value) -> Option<DouyinAweme> {
     })
 }
 
+/// Parse one entry from `/aweme/v1/web/music/listcollection/` (`mc_list`).
+///
+/// Reuses [`DouyinAweme`] so the existing list/download UI can stay shared:
+/// `aweme_id` holds the music id, `desc` the title, `digg_count` the use count.
+fn parse_collect_music(item: &Value) -> Option<DouyinAweme> {
+    let aweme_id = item
+        .get("id_str")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
+        .or_else(|| {
+            item.get("id")
+                .and_then(|v| v.as_i64().or_else(|| v.as_u64().map(|n| n as i64)))
+                .map(|n| n.to_string())
+        })
+        .filter(|s| !s.is_empty())?;
+
+    let mut play_url_candidates = Vec::new();
+    if let Some(Value::Array(arr)) = item.pointer("/play_url/url_list") {
+        for url in arr.iter().filter_map(|x| x.as_str()) {
+            push_url(&mut play_url_candidates, url);
+        }
+    }
+    // Some payloads put a bare string on `play_url`.
+    if let Some(url) = item.get("play_url").and_then(|v| v.as_str()) {
+        push_url(&mut play_url_candidates, url);
+    }
+    let play_url = play_url_candidates.first()?.clone();
+
+    let cover_url = first_url(
+        item.pointer("/cover_hd/url_list")
+            .and_then(|v| v.as_array())
+            .or_else(|| item.pointer("/cover_large/url_list").and_then(|v| v.as_array()))
+            .or_else(|| item.pointer("/cover_medium/url_list").and_then(|v| v.as_array()))
+            .or_else(|| item.pointer("/cover_thumb/url_list").and_then(|v| v.as_array())),
+    );
+
+    let raw_duration = item.get("duration").and_then(|v| v.as_u64()).unwrap_or(0);
+    // Music `duration` is usually seconds; video duration is ms. Heuristic keeps
+    // short clips readable either way.
+    let duration_ms = if raw_duration > 0 && raw_duration < 10_000 {
+        raw_duration.saturating_mul(1000)
+    } else {
+        raw_duration
+    };
+
+    let digg_count = item
+        .get("user_count")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0);
+    let author_name = item
+        .get("author")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let desc = item
+        .get("title")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+
+    Some(DouyinAweme {
+        aweme_id,
+        desc,
+        cover_url,
+        play_url,
+        play_url_candidates,
+        duration_ms,
+        digg_count,
+        create_time: 0,
+        author_name,
+    })
+}
+
 fn resolve_download_root(app: &AppHandle) -> Result<PathBuf, String> {
     let from_manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .parent()
@@ -485,8 +566,51 @@ fn index_entry_key(kind_folder: &str, aweme_id: &str) -> String {
 fn normalize_kind_folder(kind: &str) -> &'static str {
     match kind.trim().to_ascii_lowercase().as_str() {
         "favorite" | "like" | "likes" => "likes",
+        "collect" | "collect_music" | "collect-music" | "music" => "collect-music",
         _ => "works",
     }
+}
+
+fn is_collect_music_kind(kind: &str) -> bool {
+    matches!(
+        kind.trim().to_ascii_lowercase().as_str(),
+        "collect" | "collect_music" | "collect-music" | "music"
+    )
+}
+
+fn media_ext_for_kind(kind: &str) -> &'static str {
+    if is_collect_music_kind(kind) {
+        // Fallback only; real downloads sniff the payload (Douyin mixes mp3/m4a).
+        "mp3"
+    } else {
+        "mp4"
+    }
+}
+
+/// Pick an extension from the raw CDN bytes so Finder/iMovie see a matching type.
+///
+/// Douyin collect-music URLs are often MPEG Layer III with an ID3 header, but
+/// sometimes a real AAC-in-MP4 (`ftypM4A`). Saving the wrong extension makes
+/// iMovie reject the file as "unsupported or unknown".
+fn sniff_audio_ext(bytes: &[u8]) -> &'static str {
+    if bytes.len() >= 3 && &bytes[..3] == b"ID3" {
+        return "mp3";
+    }
+    if bytes.len() >= 2 && bytes[0] == 0xff && (bytes[1] & 0xe0) == 0xe0 {
+        // MPEG audio frame header: layer bits 01 = Layer III (mp3).
+        let layer = (bytes[1] >> 1) & 0x03;
+        if layer == 0x01 {
+            return "mp3";
+        }
+    }
+    // ISO BMFF (`ftyp…`) → real m4a/mp4 container.
+    if bytes.len() >= 8 && &bytes[4..8] == b"ftyp" {
+        return "m4a";
+    }
+    if bytes.windows(4).take(64).any(|w| w == b"ftyp") {
+        return "m4a";
+    }
+    "mp3"
 }
 
 /// Migrate legacy index keys (`aweme_id` only) to `likes|works:aweme_id`.
@@ -569,14 +693,21 @@ fn format_seq(index: u32, total: usize) -> String {
     format!("{:0width$}", index, width = seq_width(total))
 }
 
-/// `{awemeId}_{stem}.mp4` or `{seq}_{awemeId}_{stem}.mp4`
-fn media_filename(seq: Option<u32>, total: Option<u32>, aweme_id: &str, stem: &str) -> String {
+/// `{awemeId}_{stem}.{ext}` or `{seq}_{awemeId}_{stem}.{ext}`
+fn media_filename(
+    seq: Option<u32>,
+    total: Option<u32>,
+    aweme_id: &str,
+    stem: &str,
+    ext: &str,
+) -> String {
+    let ext = ext.trim_start_matches('.');
     match seq.filter(|i| *i > 0) {
         Some(i) => {
             let width_total = total.unwrap_or(i) as usize;
-            format!("{}_{aweme_id}_{stem}.mp4", format_seq(i, width_total))
+            format!("{}_{aweme_id}_{stem}.{ext}", format_seq(i, width_total))
         }
-        None => format!("{aweme_id}_{stem}.mp4"),
+        None => format!("{aweme_id}_{stem}.{ext}"),
     }
 }
 
@@ -694,16 +825,67 @@ pub async fn douyin_list_aweme(
         return Err("sec_uid 为空".into());
     }
     let kind = kind.trim().to_ascii_lowercase();
+    let cursor_val = cursor.unwrap_or(0);
+
+    if is_collect_music_kind(&kind) {
+        // Own account collect-music; no sec_user_id. Cursor field is `cursor`.
+        let extra = json!({
+            "cursor": cursor_val.to_string(),
+            "count": "20",
+        });
+        let body = bridge_json(
+            &app,
+            "GET",
+            "/aweme/v1/web/music/listcollection/",
+            extra,
+            None,
+            douyin_bridge::Surface::OnStall,
+        )
+        .await?;
+        expect_ok_status(&body, "拉取收藏音乐失败")?;
+
+        let items = body
+            .get("mc_list")
+            .and_then(|v| v.as_array())
+            .cloned()
+            .unwrap_or_default()
+            .iter()
+            .filter_map(parse_collect_music)
+            .collect::<Vec<_>>();
+
+        let max_cursor = body
+            .get("cursor")
+            .and_then(|v| v.as_u64())
+            .or_else(|| {
+                body.get("cursor")
+                    .and_then(|v| v.as_str())
+                    .and_then(|s| s.parse().ok())
+            })
+            .or_else(|| body.get("max_cursor").and_then(|v| v.as_u64()))
+            .unwrap_or(0);
+        let has_more = body
+            .get("has_more")
+            .and_then(|v| v.as_bool())
+            .or_else(|| body.get("has_more").and_then(|v| v.as_i64()).map(|n| n != 0))
+            .unwrap_or(false);
+
+        return Ok(DouyinListResult {
+            items,
+            max_cursor,
+            has_more,
+        });
+    }
+
     let path = match kind.as_str() {
         "post" | "works" => "/aweme/v1/web/aweme/post/",
         "favorite" | "like" | "likes" => "/aweme/v1/web/aweme/favorite/",
-        _ => return Err("kind 仅支持 post / favorite".into()),
+        _ => return Err("kind 仅支持 post / favorite / collect_music".into()),
     };
 
     let extra = json!({
         "sec_user_id": sec_uid,
         "count": "18",
-        "max_cursor": cursor.unwrap_or(0).to_string(),
+        "max_cursor": cursor_val.to_string(),
         "min_cursor": "0",
         "whale_cut_token": "",
         "cut_version": "1",
@@ -797,23 +979,42 @@ pub async fn douyin_cache_preview(
     aweme_id: String,
     play_url: String,
     play_urls: Option<Vec<String>>,
+    kind: Option<String>,
 ) -> Result<String, String> {
     let aweme_id = aweme_id.trim().to_string();
     let candidates = merge_candidates(&play_url, play_urls);
     if aweme_id.is_empty() || candidates.is_empty() {
         return Err("参数不完整".into());
     }
+    let kind = kind.unwrap_or_else(|| "works".into());
+    let allow_refresh = !is_collect_music_kind(&kind);
     let root = resolve_download_root(&app)?;
     let dir = root.join("preview");
     fs::create_dir_all(&dir)
         .await
         .map_err(|e| format!("创建预览目录失败: {e}"))?;
-    let output = dir.join(format!("{aweme_id}.mp4"));
-    if output.is_file() {
-        return Ok(output.to_string_lossy().to_string());
+
+    if is_collect_music_kind(&kind) {
+        for ext in ["mp3", "m4a"] {
+            let existing = dir.join(format!("{aweme_id}.{ext}"));
+            if existing.is_file() {
+                return Ok(existing.to_string_lossy().to_string());
+            }
+        }
+    } else {
+        let existing = dir.join(format!("{aweme_id}.mp4"));
+        if existing.is_file() {
+            return Ok(existing.to_string_lossy().to_string());
+        }
     }
 
-    let bytes = fetch_media(&app, &aweme_id, &candidates, "预览拉取").await?;
+    let bytes = fetch_media(&app, &aweme_id, &candidates, "预览拉取", allow_refresh).await?;
+    let ext = if is_collect_music_kind(&kind) {
+        sniff_audio_ext(&bytes)
+    } else {
+        media_ext_for_kind(&kind)
+    };
+    let output = dir.join(format!("{aweme_id}.{ext}"));
     fs::write(&output, &bytes)
         .await
         .map_err(|e| format!("写入预览失败: {e}"))?;
@@ -838,6 +1039,7 @@ pub async fn douyin_download(
     }
     let kind = kind.unwrap_or_else(|| "works".into());
     let kind_folder = normalize_kind_folder(&kind);
+    let allow_refresh = !is_collect_music_kind(&kind);
 
     let root = resolve_download_root(&app)?;
     let out_dir = root.join(kind_folder);
@@ -851,9 +1053,15 @@ pub async fn douyin_download(
             .filter(|s| !s.trim().is_empty())
             .unwrap_or(&aweme_id),
     );
-    let output = out_dir.join(media_filename(seq, total, &aweme_id, &stem));
 
-    let bytes = fetch_media(&app, &aweme_id, &candidates, "下载").await?;
+    let bytes = fetch_media(&app, &aweme_id, &candidates, "下载", allow_refresh).await?;
+    let ext = if is_collect_music_kind(&kind) {
+        sniff_audio_ext(&bytes)
+    } else {
+        media_ext_for_kind(&kind)
+    };
+    let output = out_dir.join(media_filename(seq, total, &aweme_id, &stem, ext));
+
     let mut file = fs::File::create(&output)
         .await
         .map_err(|e| format!("创建文件失败: {e}"))?;

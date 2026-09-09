@@ -2,10 +2,20 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { listDownloaded } from '../api/douyinApi'
 import type { DouyinDownloadedEntry, DouyinListKind } from '../types'
 
-/** likes / works — must match Rust `normalize_kind_folder` */
-export function kindFolder(kind: DouyinListKind | string): 'likes' | 'works' {
+/** likes / works / collect-music — must match Rust `normalize_kind_folder` */
+export function kindFolder(
+  kind: DouyinListKind | string,
+): 'likes' | 'works' | 'collect-music' {
   const k = kind.trim().toLowerCase()
   if (k === 'favorite' || k === 'like' || k === 'likes') return 'likes'
+  if (
+    k === 'collect' ||
+    k === 'collect_music' ||
+    k === 'collect-music' ||
+    k === 'music'
+  ) {
+    return 'collect-music'
+  }
   return 'works'
 }
 

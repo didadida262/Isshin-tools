@@ -5,7 +5,7 @@ export type AuthStatus =
   | 'authenticated'
   | 'auth-error'
 
-export type DouyinListKind = 'post' | 'favorite'
+export type DouyinListKind = 'post' | 'favorite' | 'collect_music'
 
 export interface DouyinProfile {
   secUid: string
