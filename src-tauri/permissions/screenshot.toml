@@ -1,0 +1,9 @@
+[[permission]]
+identifier = "allow-screenshot"
+description = "Allow region screenshot overlay, frame fetch, confirm/cancel"
+commands.allow = [
+  "screenshot_confirm",
+  "screenshot_cancel",
+  "screenshot_overlay_ready",
+  "screenshot_reveal",
+]
