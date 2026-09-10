@@ -167,8 +167,10 @@ pub fn screenshot_confirm(
         return Err("选区过小".to_string());
     }
 
-    // Hide first so the overlay is not in the capture.
+    // Hide first and wait for WindowServer to drop our overlay from the
+    // compositor — otherwise the cyan selection chrome is baked into the PNG.
     hide_overlay(&app);
+    std::thread::sleep(std::time::Duration::from_millis(90));
 
     let monitor = primary_monitor()?;
     let (logical_w, _logical_h, reported_scale, _, _) = monitor_metrics(&monitor)?;

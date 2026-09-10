@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { flushSync } from 'react-dom'
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 
@@ -24,39 +25,17 @@ function normalizeRect(a: { x: number; y: number }, b: { x: number; y: number })
   return { x, y, w, h }
 }
 
-function Corner({
-  style,
-  h,
-  v,
-}: {
-  style: CSSProperties
-  h: 'left' | 'right'
-  v: 'top' | 'bottom'
-}) {
-  return (
-    <div className="pointer-events-none absolute" style={style}>
-      <div
-        className="absolute bg-[#f4f4f5]"
-        style={{
-          width: 18,
-          height: 2.5,
-          [h]: 0,
-          [v]: 0,
-          boxShadow: '0 0 10px rgba(250,250,250,0.4)',
-        }}
-      />
-      <div
-        className="absolute bg-[#f4f4f5]"
-        style={{
-          width: 2.5,
-          height: 18,
-          [h]: 0,
-          [v]: 0,
-          boxShadow: '0 0 10px rgba(250,250,250,0.4)',
-        }}
-      />
-    </div>
-  )
+function waitFrames(n: number): Promise<void> {
+  return new Promise((resolve) => {
+    const step = (left: number) => {
+      if (left <= 0) {
+        resolve()
+        return
+      }
+      requestAnimationFrame(() => step(left - 1))
+    }
+    step(n)
+  })
 }
 
 export function ScreenshotOverlay() {
@@ -122,8 +101,13 @@ export function ScreenshotOverlay() {
   const confirm = useCallback(async (rect: Rect) => {
     if (confirming.current || rect.w < 4 || rect.h < 4) return
     confirming.current = true
-    setActive(false)
-    setSelection(null)
+    // Tear down overlay UI synchronously before capture, otherwise the cyan
+    // frame is still on-screen when Rust grabs the display.
+    flushSync(() => {
+      setActive(false)
+      setSelection(null)
+    })
+    await waitFrames(2)
     try {
       await invoke('screenshot_confirm', {
         x: rect.x,
@@ -221,6 +205,32 @@ export function ScreenshotOverlay() {
                   <rect x={sel.x} y={sel.y} width={sel.w} height={sel.h} fill="black" />
                 )}
               </mask>
+              <linearGradient id="isshin-shot-flow" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stopColor="#f0fdfa">
+                  <animate
+                    attributeName="stop-color"
+                    values="#f0fdfa;#22d3ee;#2dd4bf;#f0fdfa"
+                    dur="2.2s"
+                    repeatCount="indefinite"
+                  />
+                </stop>
+                <stop offset="45%" stopColor="#22d3ee">
+                  <animate
+                    attributeName="stop-color"
+                    values="#22d3ee;#2dd4bf;#67e8f9;#22d3ee"
+                    dur="2.2s"
+                    repeatCount="indefinite"
+                  />
+                </stop>
+                <stop offset="100%" stopColor="#67e8f9">
+                  <animate
+                    attributeName="stop-color"
+                    values="#67e8f9;#f0fdfa;#22d3ee;#67e8f9"
+                    dur="2.2s"
+                    repeatCount="indefinite"
+                  />
+                </stop>
+              </linearGradient>
             </defs>
             <rect
               width="100%"
@@ -229,53 +239,75 @@ export function ScreenshotOverlay() {
               mask="url(#isshin-shot-mask)"
             />
             {sel && sel.w > 0 && sel.h > 0 && (
-              <rect
-                x={sel.x + 0.5}
-                y={sel.y + 0.5}
-                width={Math.max(0, sel.w - 1)}
-                height={Math.max(0, sel.h - 1)}
-                fill="none"
-                stroke="rgba(250,250,250,0.92)"
-                strokeWidth={1.25}
-              />
+              <g>
+                <rect
+                  x={sel.x + 0.5}
+                  y={sel.y + 0.5}
+                  width={Math.max(0, sel.w - 1)}
+                  height={Math.max(0, sel.h - 1)}
+                  fill="none"
+                  stroke="url(#isshin-shot-flow)"
+                  strokeWidth={2}
+                />
+                <rect
+                  x={sel.x + 0.5}
+                  y={sel.y + 0.5}
+                  width={Math.max(0, sel.w - 1)}
+                  height={Math.max(0, sel.h - 1)}
+                  fill="none"
+                  stroke="rgba(240,253,250,0.9)"
+                  strokeWidth={1.1}
+                  strokeDasharray="10 14"
+                  className="isshin-shot-dash"
+                />
+              </g>
             )}
           </svg>
-
-          {sel && sel.w > 0 && sel.h > 0 && (
-            <>
-              <Corner style={{ left: sel.x - 1, top: sel.y - 1 }} h="left" v="top" />
-              <Corner style={{ left: sel.x + sel.w - 17, top: sel.y - 1 }} h="right" v="top" />
-              <Corner style={{ left: sel.x - 1, top: sel.y + sel.h - 17 }} h="left" v="bottom" />
-              <Corner
-                style={{ left: sel.x + sel.w - 17, top: sel.y + sel.h - 17 }}
-                h="right"
-                v="bottom"
-              />
-            </>
-          )}
 
           {!showSize && (
             <div className="pointer-events-none absolute inset-0">
               <div
-                className="absolute top-0 bottom-0 w-px bg-white/30"
-                style={{ left: cursor.x }}
+                className="absolute top-0 bottom-0 w-px"
+                style={{
+                  left: cursor.x,
+                  background:
+                    'linear-gradient(180deg, transparent, rgba(34,211,238,0.55), transparent)',
+                  boxShadow: '0 0 8px rgba(34,211,238,0.35)',
+                }}
               />
               <div
-                className="absolute left-0 right-0 h-px bg-white/30"
-                style={{ top: cursor.y }}
+                className="absolute left-0 right-0 h-px"
+                style={{
+                  top: cursor.y,
+                  background:
+                    'linear-gradient(90deg, transparent, rgba(45,212,191,0.55), transparent)',
+                  boxShadow: '0 0 8px rgba(45,212,191,0.35)',
+                }}
+              />
+              <div
+                className="absolute h-2.5 w-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full"
+                style={{
+                  left: cursor.x,
+                  top: cursor.y,
+                  background: 'rgba(240,253,250,0.9)',
+                  boxShadow: '0 0 0 2px rgba(34,211,238,0.7), 0 0 12px rgba(34,211,238,0.8)',
+                }}
               />
             </div>
           )}
 
           {showSize && sel && (
             <div
-              className="pointer-events-none absolute z-20 rounded-md px-2.5 py-1.5 text-[11px] font-medium tracking-wide text-zinc-100 tabular-nums"
+              className="pointer-events-none absolute z-20 rounded-md px-2.5 py-1.5 text-[11px] font-semibold tracking-wide tabular-nums"
               style={{
                 left: Math.min(sel.x + sel.w + 10, window.innerWidth - 120),
                 top: Math.max(12, sel.y),
-                background: 'rgba(9,9,11,0.78)',
-                border: '1px solid rgba(255,255,255,0.12)',
+                color: '#ecfeff',
+                background:
+                  'linear-gradient(135deg, rgba(8,47,53,0.88), rgba(9,9,11,0.82))',
+                border: '1px solid rgba(34,211,238,0.45)',
                 backdropFilter: 'blur(10px)',
+                boxShadow: '0 0 16px rgba(34,211,238,0.25), inset 0 1px 0 rgba(255,255,255,0.08)',
               }}
             >
               {Math.round(sel.w)} × {Math.round(sel.h)}
@@ -287,10 +319,18 @@ export function ScreenshotOverlay() {
               className="flex items-center gap-3 rounded-full px-4 py-2 text-[12px] text-zinc-200"
               style={{
                 background: 'rgba(9,9,11,0.72)',
-                border: '1px solid rgba(255,255,255,0.1)',
+                border: '1px solid rgba(34,211,238,0.22)',
                 backdropFilter: 'blur(14px)',
+                boxShadow: '0 8px 28px rgba(0,0,0,0.35)',
               }}
             >
+              <span
+                className="h-1.5 w-1.5 rounded-full"
+                style={{
+                  background: '#22d3ee',
+                  boxShadow: '0 0 8px #22d3ee',
+                }}
+              />
               <span className="tracking-wide">拖拽选择区域</span>
               <span className="h-3 w-px bg-white/15" />
               <kbd className="rounded bg-white/10 px-1.5 py-0.5 font-mono text-[10px] text-zinc-300">
@@ -299,6 +339,15 @@ export function ScreenshotOverlay() {
               <span className="text-zinc-500">取消</span>
             </div>
           </div>
+
+          <style>{`
+            @keyframes isshin-shot-dash-move {
+              to { stroke-dashoffset: -48; }
+            }
+            .isshin-shot-dash {
+              animation: isshin-shot-dash-move 0.85s linear infinite;
+            }
+          `}</style>
         </>
       )}
 
