@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
+import { readFile } from '@tauri-apps/plugin-fs'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
 import {
   faFileExport,
@@ -15,12 +17,13 @@ import {
   faEllipsis,
   faTrashCan,
 } from '@fortawesome/free-solid-svg-icons'
-import { motion } from 'framer-motion'
+import { AnimatePresence, motion } from 'framer-motion'
 import gsap from 'gsap'
 import { ErrorState } from '@/components/ErrorState'
 import { TrackListSkeleton } from '@/components/Skeleton'
 import { useToast } from '@/components/Toast'
 import { useDebouncedValue } from '@/hooks/useDebouncedValue'
+import { useToolVisible } from '@/shell/ToolVisibility'
 import {
   dismissTask,
   registerCancelHandler,
@@ -41,6 +44,7 @@ import {
 } from '../lib/autoSniffDownload'
 import type { ExportFormat, NeteasePlaylist, NeteaseTrack } from '../types'
 import { ResourceSniffDialog } from './ResourceSniffDialog'
+import { TrackPreviewDialog } from './TrackPreviewDialog'
 
 interface TrackPanelProps {
   playlist: NeteasePlaylist | null
@@ -80,10 +84,15 @@ export function TrackPanel({
   onRetry,
 }: TrackPanelProps) {
   const { toast } = useToast()
+  const toolVisible = useToolVisible()
   const [filter, setFilter] = useState('')
   const [exporting, setExporting] = useState<ExportFormat | null>(null)
   const [lastPath, setLastPath] = useState<string | null>(null)
   const [sniffTrack, setSniffTrack] = useState<NeteaseTrack | null>(null)
+  const [previewTrack, setPreviewTrack] = useState<NeteaseTrack | null>(null)
+  const [previewSrc, setPreviewSrc] = useState<string | null>(null)
+  const [previewLoading, setPreviewLoading] = useState(false)
+  const [previewError, setPreviewError] = useState<string | null>(null)
   const [batchActive, setBatchActive] = useState(false)
   const [batchStopping, setBatchStopping] = useState(false)
   const [batchSongId, setBatchSongId] = useState<number | null>(null)
@@ -96,6 +105,8 @@ export function TrackPanel({
   const scrollRef = useRef<HTMLDivElement>(null)
   const rowRefs = useRef(new Map<number, HTMLTableRowElement>())
   const cancelBatchRef = useRef(false)
+  const previewTrackRef = useRef<NeteaseTrack | null>(null)
+  const filteredRef = useRef<NeteaseTrack[]>([])
   const { bySongId, markDownloaded, deleteDownloaded, reload, syncing, syncFromDisk } =
     useDownloadedTracks()
   const bySongIdRef = useRef(bySongId)
@@ -122,6 +133,15 @@ export function TrackPanel({
         t.album.toLowerCase().includes(q),
     )
   }, [orderedTracks, filterQuery])
+  filteredRef.current = filtered
+  previewTrackRef.current = previewTrack
+
+  const previewIndex = previewTrack
+    ? filtered.findIndex((t) => t.songId === previewTrack.songId)
+    : -1
+  const previewDownloaded = previewTrack
+    ? bySongId.get(previewTrack.songId)
+    : undefined
 
   const downloadedCount = useMemo(() => {
     let n = 0
@@ -171,12 +191,150 @@ export function TrackPanel({
     setBatchSongId(null)
     setBatchStatus(null)
     setSniffTrack(null)
+    setPreviewTrack(null)
     setMenuOpen(false)
     setDeletingSongId(null)
     appliedSeqKey.current = ''
     dismissTask(TASK_IDS.neteaseBatch)
     registerCancelHandler(TASK_IDS.neteaseBatch, null)
   }, [playlist?.id])
+
+  useEffect(() => {
+    if (!previewTrack) {
+      setPreviewSrc((prev) => {
+        if (prev?.startsWith('blob:')) URL.revokeObjectURL(prev)
+        return null
+      })
+      setPreviewError(null)
+      setPreviewLoading(false)
+      return
+    }
+
+    const entry = bySongIdRef.current.get(previewTrack.songId)
+    if (!entry) {
+      setPreviewSrc((prev) => {
+        if (prev?.startsWith('blob:')) URL.revokeObjectURL(prev)
+        return null
+      })
+      setPreviewLoading(false)
+      setPreviewError('尚未下载本地文件，请先嗅探下载')
+      return
+    }
+
+    let cancelled = false
+    let objectUrl: string | null = null
+    setPreviewLoading(true)
+    setPreviewError(null)
+    setPreviewSrc((prev) => {
+      if (prev?.startsWith('blob:')) URL.revokeObjectURL(prev)
+      return null
+    })
+
+    void (async () => {
+      try {
+        // blob URL：WKWebView 下 convertFileSrc(asset://) 经常无法播放本地文件
+        const bytes = await readFile(entry.path)
+        if (cancelled) return
+        const lower = entry.path.toLowerCase()
+        const mime = lower.endsWith('.m4a')
+          ? 'audio/mp4'
+          : lower.endsWith('.mp3')
+            ? 'audio/mpeg'
+            : 'audio/mp4'
+        const blob = new Blob([bytes], { type: mime })
+        objectUrl = URL.createObjectURL(blob)
+        setPreviewSrc(objectUrl)
+      } catch (e) {
+        if (cancelled) return
+        setPreviewError(e instanceof Error ? e.message : String(e))
+      } finally {
+        if (!cancelled) setPreviewLoading(false)
+      }
+    })()
+
+    return () => {
+      cancelled = true
+      if (objectUrl) URL.revokeObjectURL(objectUrl)
+    }
+  }, [previewTrack])
+
+  const scrollPreviewIntoView = useCallback((songId: number) => {
+    const row = rowRefs.current.get(songId)
+    const root = scrollRef.current
+    if (!row || !root) return
+    const rowTop = row.offsetTop
+    const rowBottom = rowTop + row.offsetHeight
+    const viewTop = root.scrollTop
+    const viewBottom = viewTop + root.clientHeight
+    const margin = 48
+    if (rowTop < viewTop + margin) {
+      root.scrollTo({ top: Math.max(0, rowTop - margin), behavior: 'smooth' })
+    } else if (rowBottom > viewBottom - margin) {
+      root.scrollTo({
+        top: rowBottom - root.clientHeight + margin,
+        behavior: 'smooth',
+      })
+    }
+  }, [])
+
+  const goPreviewOffset = useCallback(
+    (delta: number, opts?: { preferDownloaded?: boolean }) => {
+      const list = filteredRef.current
+      const currentId = previewTrackRef.current?.songId
+      const index = currentId
+        ? list.findIndex((item) => item.songId === currentId)
+        : -1
+      if (index < 0) return
+
+      if (opts?.preferDownloaded) {
+        let nextIndex = index + delta
+        while (nextIndex >= 0 && nextIndex < list.length) {
+          const candidate = list[nextIndex]
+          if (candidate && bySongIdRef.current.has(candidate.songId)) {
+            setPreviewTrack(candidate)
+            scrollPreviewIntoView(candidate.songId)
+            return
+          }
+          nextIndex += delta
+        }
+        return
+      }
+
+      const nextIndex = index + delta
+      if (nextIndex < 0 || nextIndex >= list.length) return
+      const next = list[nextIndex]
+      if (!next) return
+      setPreviewTrack(next)
+      scrollPreviewIntoView(next.songId)
+    },
+    [scrollPreviewIntoView],
+  )
+
+  useEffect(() => {
+    if (!previewTrack) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setPreviewTrack(null)
+        return
+      }
+      if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return
+      const tag = (e.target as HTMLElement | null)?.tagName
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return
+      e.preventDefault()
+      goPreviewOffset(e.key === 'ArrowUp' ? -1 : 1)
+    }
+    window.addEventListener('keydown', onKey)
+    const prev = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => {
+      window.removeEventListener('keydown', onKey)
+      document.body.style.overflow = prev
+    }
+  }, [previewTrack, goPreviewOffset])
+
+  useEffect(() => {
+    if (batchActive && previewTrack) setPreviewTrack(null)
+  }, [batchActive, previewTrack])
 
   useEffect(() => {
     if (!batchActive && !batchStatus) {
@@ -427,6 +585,7 @@ export function TrackPanel({
     try {
       await deleteDownloaded(track.songId)
       if (lastPath === entry.path) setLastPath(null)
+      if (previewTrackRef.current?.songId === track.songId) setPreviewTrack(null)
       toast(`已删除本地文件 · ${track.name}`, 'success')
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e)
@@ -435,6 +594,14 @@ export function TrackPanel({
       setDeletingSongId(null)
     }
   }
+
+  const openPreview = useCallback(
+    (track: NeteaseTrack) => {
+      if (batchActive) return
+      setPreviewTrack(track)
+    },
+    [batchActive],
+  )
 
   return (
     <section className="flex h-full min-h-0 flex-col overflow-hidden rounded-2xl border border-border-subtle bg-surface/60">
@@ -651,6 +818,7 @@ export function TrackPanel({
               {filtered.map((track, index) => {
                 const downloaded = bySongId.get(track.songId)
                 const isBatchTarget = batchSongId === track.songId
+                const isPreviewing = previewTrack?.songId === track.songId
                 return (
                   <motion.tr
                     key={track.songId}
@@ -661,8 +829,9 @@ export function TrackPanel({
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
                     transition={{ delay: Math.min(index * 0.008, 0.15) }}
-                    className={`border-b border-border-subtle/60 transition-colors duration-200 ${
-                      isBatchTarget
+                    onClick={() => openPreview(track)}
+                    className={`cursor-pointer border-b border-border-subtle/60 transition-colors duration-200 ${
+                      isPreviewing || isBatchTarget
                         ? 'bg-surface-hover/70'
                         : 'hover:bg-surface-hover/50'
                     }`}
@@ -703,7 +872,7 @@ export function TrackPanel({
                     <td className="px-3 py-2.5 text-right tabular-nums text-subtle">
                       {formatDuration(track.durationMs)}
                     </td>
-                    <td className="px-2 py-2.5">
+                    <td className="px-2 py-2.5" onClick={(e) => e.stopPropagation()}>
                       <div className="flex items-center justify-center gap-0.5">
                         <button
                           type="button"
@@ -770,6 +939,52 @@ export function TrackPanel({
         onClose={() => setSniffTrack(null)}
         onDownloaded={markDownloaded}
       />
+
+      {typeof document !== 'undefined' &&
+        toolVisible &&
+        createPortal(
+          <AnimatePresence>
+            {previewTrack && (
+              <motion.div
+                className="fixed inset-0 z-50 flex items-center justify-center p-4"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.16 }}
+              >
+                <button
+                  type="button"
+                  aria-label="关闭"
+                  className="absolute inset-0 bg-black/60 backdrop-blur-[2px]"
+                  onClick={() => setPreviewTrack(null)}
+                />
+                <TrackPreviewDialog
+                  track={previewTrack}
+                  coverUrl={playlist?.coverImgUrl}
+                  previewSrc={previewSrc}
+                  previewLoading={previewLoading}
+                  previewError={previewError}
+                  downloaded={previewDownloaded}
+                  canReveal={!!previewDownloaded?.path}
+                  hasPrev={previewIndex > 0}
+                  hasNext={previewIndex >= 0 && previewIndex < filtered.length - 1}
+                  onClose={() => setPreviewTrack(null)}
+                  onPrev={() => goPreviewOffset(-1)}
+                  onNext={() => goPreviewOffset(1)}
+                  onAutoNext={() => goPreviewOffset(1, { preferDownloaded: true })}
+                  onReveal={() => {
+                    if (previewDownloaded?.path) void revealExport(previewDownloaded.path)
+                  }}
+                  onSniff={() => {
+                    setSniffTrack(previewTrack)
+                    setPreviewTrack(null)
+                  }}
+                />
+              </motion.div>
+            )}
+          </AnimatePresence>,
+          document.body,
+        )}
     </section>
   )
 }
