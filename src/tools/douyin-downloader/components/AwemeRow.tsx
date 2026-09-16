@@ -1,21 +1,30 @@
-import { memo, type CSSProperties } from 'react'
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  type CSSProperties,
+} from 'react'
+import { createPortal } from 'react-dom'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
 import {
   faCircleCheck,
+  faEllipsis,
   faFolderOpen,
   faHeart,
   faSatelliteDish,
   faSpinner,
+  faTrashCan,
   faTriangleExclamation,
 } from '@fortawesome/free-solid-svg-icons'
 import type { DouyinAweme, DouyinDownloadedEntry, DouyinListKind } from '../types'
 
 export const AWEME_ROW_HEIGHT = 64
 
-export function awemeGridTemplate(kind: DouyinListKind) {
-  return `2.75rem 3.25rem minmax(0, 1fr) 5.5rem 4.5rem 4rem ${
-    kind === 'favorite' ? '15.5rem' : '9.5rem'
-  }`
+export function awemeGridTemplate(_kind: DouyinListKind) {
+  return '2.75rem 3.25rem minmax(0, 1fr) 5.5rem 4.5rem 4rem 7.5rem'
 }
 
 function formatDuration(ms: number) {
@@ -40,6 +49,7 @@ export interface AwemeRowProps {
   skipped: string | undefined
   busyDownload: boolean
   busyUnlike: boolean
+  busyDelete: boolean
   isBatchTarget: boolean
   anyBatchActive: boolean
   controlsLocked: boolean
@@ -47,6 +57,7 @@ export interface AwemeRowProps {
   onSelect: (item: DouyinAweme) => void
   onDownload: (item: DouyinAweme) => void
   onUnlike: (item: DouyinAweme) => void
+  onDelete: (item: DouyinAweme) => void
   onReveal: (entry: DouyinDownloadedEntry) => void
 }
 
@@ -58,6 +69,7 @@ export const AwemeRow = memo(function AwemeRow({
   skipped,
   busyDownload,
   busyUnlike,
+  busyDelete,
   isBatchTarget,
   anyBatchActive,
   controlsLocked,
@@ -65,8 +77,68 @@ export const AwemeRow = memo(function AwemeRow({
   onSelect,
   onDownload,
   onUnlike,
+  onDelete,
   onReveal,
 }: AwemeRowProps) {
+  const menuId = useId()
+  const [menuOpen, setMenuOpen] = useState(false)
+  const [menuPos, setMenuPos] = useState({ top: 0, right: 0 })
+  const triggerRef = useRef<HTMLButtonElement>(null)
+  const menuRef = useRef<HTMLDivElement>(null)
+  const busyAny = busyUnlike || busyDelete || busyDownload
+
+  const closeMenu = useCallback(() => setMenuOpen(false), [])
+
+  const openMenu = useCallback(() => {
+    const el = triggerRef.current
+    if (!el) return
+    const rect = el.getBoundingClientRect()
+    const menuHeight = 168
+    const below = rect.bottom + 4
+    const top =
+      below + menuHeight > window.innerHeight - 8
+        ? Math.max(8, rect.top - menuHeight - 4)
+        : below
+    setMenuPos({
+      top,
+      right: Math.max(8, window.innerWidth - rect.right),
+    })
+    setMenuOpen(true)
+  }, [])
+
+  useEffect(() => {
+    if (!menuOpen) return
+    const onPointerDown = (e: PointerEvent) => {
+      const t = e.target as Node
+      if (triggerRef.current?.contains(t) || menuRef.current?.contains(t)) return
+      closeMenu()
+    }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') closeMenu()
+    }
+    const onScroll = () => closeMenu()
+    document.addEventListener('pointerdown', onPointerDown)
+    document.addEventListener('keydown', onKey)
+    window.addEventListener('scroll', onScroll, true)
+    window.addEventListener('resize', closeMenu)
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown)
+      document.removeEventListener('keydown', onKey)
+      window.removeEventListener('scroll', onScroll, true)
+      window.removeEventListener('resize', closeMenu)
+    }
+  }, [menuOpen, closeMenu])
+
+  useEffect(() => {
+    if (anyBatchActive || busyAny) closeMenu()
+  }, [anyBatchActive, busyAny, closeMenu])
+
+  const showUnlike = kind === 'favorite'
+  const showReveal = !!downloaded
+  const showDelete = !!downloaded
+  const showDownload = !downloaded
+  const hasMenu = showUnlike || showReveal || showDelete || showDownload
+
   return (
     <div
       role="row"
@@ -118,77 +190,132 @@ export const AwemeRow = memo(function AwemeRow({
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex flex-nowrap items-center justify-end gap-1">
-          {kind === 'favorite' && (
-            <button
-              type="button"
-              disabled={controlsLocked && !busyUnlike}
-              onClick={() => onUnlike(item)}
-              aria-busy={busyUnlike}
-              className={`inline-flex h-7 shrink-0 items-center gap-1 whitespace-nowrap rounded-lg px-2 text-[11px] transition-colors ${
-                busyUnlike
-                  ? 'cursor-wait text-danger'
-                  : 'text-danger/80 hover:bg-danger/10 hover:text-danger disabled:cursor-not-allowed disabled:opacity-40'
-              }`}
-              title="取消喜欢"
-            >
-              <FontAwesomeIcon
-                icon={busyUnlike ? faSpinner : faHeart}
-                className={`!h-3 !w-3 ${busyUnlike ? 'animate-spin' : ''}`}
-              />
-              {busyUnlike ? '取消中' : '取消喜欢'}
-            </button>
-          )}
           {downloaded ? (
+            <span
+              className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap px-1.5 text-[11px] text-success"
+              title={downloaded.path}
+            >
+              <FontAwesomeIcon icon={faCircleCheck} className="!h-3 !w-3" />
+              已下载
+            </span>
+          ) : skipped ? (
+            <span
+              className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap px-1.5 text-[11px] text-danger/80"
+              title={skipped}
+            >
+              <FontAwesomeIcon icon={faTriangleExclamation} className="!h-3 !w-3" />
+              已跳过
+            </span>
+          ) : null}
+
+          {hasMenu && (
             <>
-              <span
-                className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap px-1.5 text-[11px] text-success"
-                title={downloaded.path}
-              >
-                <FontAwesomeIcon icon={faCircleCheck} className="!h-3 !w-3" />
-                已下载
-              </span>
               <button
+                ref={triggerRef}
                 type="button"
-                onClick={(e) => {
-                  e.stopPropagation()
-                  onReveal(downloaded)
+                aria-label="更多操作"
+                aria-haspopup="menu"
+                aria-expanded={menuOpen}
+                aria-controls={menuOpen ? menuId : undefined}
+                disabled={controlsLocked && !busyAny}
+                onClick={() => {
+                  if (menuOpen) closeMenu()
+                  else openMenu()
                 }}
-                className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted transition-colors hover:bg-background hover:text-foreground"
-                title="打开文件位置"
-                aria-label="打开文件位置"
-              >
-                <FontAwesomeIcon icon={faFolderOpen} className="!h-3 !w-3" />
-              </button>
-            </>
-          ) : (
-            <>
-              {skipped && (
-                <span
-                  className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap px-1.5 text-[11px] text-danger/80"
-                  title={skipped}
-                >
-                  <FontAwesomeIcon icon={faTriangleExclamation} className="!h-3 !w-3" />
-                  已跳过
-                </span>
-              )}
-              <button
-                type="button"
-                disabled={controlsLocked}
-                onClick={() => onDownload(item)}
-                aria-busy={busyDownload}
-                className={`inline-flex h-7 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg px-2.5 text-[11px] transition-colors ${
-                  busyDownload
-                    ? 'cursor-wait text-foreground'
-                    : 'text-muted hover:bg-background hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40'
+                className={`inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+                  menuOpen || busyAny
+                    ? 'bg-surface-hover text-foreground'
+                    : 'text-muted hover:bg-background hover:text-foreground'
                 }`}
-                title={skipped ? '手动重试下载' : undefined}
               >
                 <FontAwesomeIcon
-                  icon={busyDownload ? faSpinner : faSatelliteDish}
-                  className={`!h-3 !w-3 ${busyDownload ? 'animate-spin' : ''}`}
+                  icon={busyAny ? faSpinner : faEllipsis}
+                  className={`!h-3.5 !w-3.5 ${busyAny ? 'animate-spin' : ''}`}
                 />
-                {busyDownload ? '下载中' : skipped ? '重试' : '下载'}
               </button>
+              {menuOpen &&
+                createPortal(
+                  <div
+                    ref={menuRef}
+                    id={menuId}
+                    role="menu"
+                    style={{ top: menuPos.top, right: menuPos.right }}
+                    className="fixed z-[80] w-40 overflow-hidden rounded-xl border border-border bg-surface py-1 shadow-xl"
+                  >
+                    {showUnlike && (
+                      <button
+                        type="button"
+                        role="menuitem"
+                        disabled={controlsLocked && !busyUnlike}
+                        onClick={() => {
+                          closeMenu()
+                          onUnlike(item)
+                        }}
+                        className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-danger transition-colors hover:bg-danger/10 disabled:cursor-not-allowed disabled:opacity-40"
+                      >
+                        <FontAwesomeIcon
+                          icon={busyUnlike ? faSpinner : faHeart}
+                          className={`h-3 w-3 shrink-0 ${busyUnlike ? 'animate-spin' : ''}`}
+                        />
+                        {busyUnlike ? '取消中' : '取消喜欢'}
+                      </button>
+                    )}
+                    {showDownload && (
+                      <button
+                        type="button"
+                        role="menuitem"
+                        disabled={controlsLocked}
+                        onClick={() => {
+                          closeMenu()
+                          onDownload(item)
+                        }}
+                        className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-foreground transition-colors hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-40"
+                      >
+                        <FontAwesomeIcon
+                          icon={busyDownload ? faSpinner : faSatelliteDish}
+                          className={`h-3 w-3 shrink-0 ${busyDownload ? 'animate-spin' : ''}`}
+                        />
+                        {busyDownload ? '下载中' : skipped ? '重试下载' : '下载'}
+                      </button>
+                    )}
+                    {showReveal && downloaded && (
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={() => {
+                          closeMenu()
+                          onReveal(downloaded)
+                        }}
+                        className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-foreground transition-colors hover:bg-surface-hover"
+                      >
+                        <FontAwesomeIcon
+                          icon={faFolderOpen}
+                          className="h-3 w-3 shrink-0"
+                        />
+                        打开文件夹
+                      </button>
+                    )}
+                    {showDelete && (
+                      <button
+                        type="button"
+                        role="menuitem"
+                        disabled={controlsLocked && !busyDelete}
+                        onClick={() => {
+                          closeMenu()
+                          onDelete(item)
+                        }}
+                        className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-danger transition-colors hover:bg-danger/10 disabled:cursor-not-allowed disabled:opacity-40"
+                      >
+                        <FontAwesomeIcon
+                          icon={busyDelete ? faSpinner : faTrashCan}
+                          className={`h-3 w-3 shrink-0 ${busyDelete ? 'animate-spin' : ''}`}
+                        />
+                        {busyDelete ? '删除中' : '删除'}
+                      </button>
+                    )}
+                  </div>,
+                  document.body,
+                )}
             </>
           )}
         </div>

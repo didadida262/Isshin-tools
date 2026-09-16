@@ -13,6 +13,7 @@ import {
   faListOl,
   faSpinner,
   faStop,
+  faTrashCan,
   faTriangleExclamation,
   faXmark,
 } from '@fortawesome/free-solid-svg-icons'
@@ -22,12 +23,13 @@ import { useToolVisible } from '@/shell/ToolVisibility'
 import {
   clearPlayerSession,
   getPlayerPlayback,
+  getPlayerSession,
   setPlayerSession,
   usePlayerSource,
   type AudioSnapshot,
 } from '@/player'
 import { TASK_IDS, upsertTask } from '@/tasks'
-import { cachePreview, downloadAweme, unlikeAweme, applyAwemeSeq } from '../api/douyinApi'
+import { cachePreview, downloadAweme, unlikeAweme, applyAwemeSeq, deleteDownloaded } from '../api/douyinApi'
 import { useBatchDownload } from '../hooks/useBatchDownload'
 import { useBatchUnlike } from '../hooks/useBatchUnlike'
 import { kindFolder } from '../hooks/useDownloadedAweme'
@@ -36,6 +38,7 @@ import type { DouyinAweme, DouyinDownloadedEntry, DouyinListKind } from '../type
 import { kindBatchDownloadLabel, kindLabel, isMusicKind } from '../lib/kindLabel'
 import { revealDownloaded } from '../lib/revealDownloaded'
 import { awemeSeq, chronologicalAwemeIds } from '../lib/awemeOrder'
+import { releaseBlobUrl } from '@/lib/mediaBlob'
 import {
   AWEME_ROW_HEIGHT,
   AwemeRow,
@@ -54,6 +57,7 @@ interface AwemePanelProps {
   onRetry: () => void
   onLoadMore: () => Promise<LoadMoreOutcome>
   onDownloaded: (entry: DouyinDownloadedEntry) => void
+  onUnmarkDownloaded: (awemeId: string, kind: DouyinListKind) => void
   onReloadDownloaded: () => Promise<void>
   onRefreshAfterUnlike: () => Promise<{
     items: DouyinAweme[]
@@ -87,6 +91,7 @@ export function AwemePanel({
   onRetry,
   onLoadMore,
   onDownloaded,
+  onUnmarkDownloaded,
   onReloadDownloaded,
   onRefreshAfterUnlike,
   onBatchActiveChange,
@@ -98,6 +103,7 @@ export function AwemePanel({
   const [previewMinimized, setPreviewMinimized] = useState(false)
   const [downloadingId, setDownloadingId] = useState<string | null>(null)
   const [unlikingId, setUnlikingId] = useState<string | null>(null)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
   const [lastPath, setLastPath] = useState<string | null>(null)
   const [previewSrc, setPreviewSrc] = useState<string | null>(null)
   const [previewLoading, setPreviewLoading] = useState(false)
@@ -116,6 +122,7 @@ export function AwemePanel({
   const seqRenamingRef = useRef(false)
   const downloadingIdRef = useRef<string | null>(null)
   const unlikingIdRef = useRef<string | null>(null)
+  const deletingIdRef = useRef<string | null>(null)
   const selectedRef = useRef<DouyinAweme | null>(null)
   const downloadedByIdRef = useRef(downloadedById)
   downloadedByIdRef.current = downloadedById
@@ -252,7 +259,8 @@ export function AwemePanel({
       seqRenamingRef.current ||
       anyBatchActiveRef.current ||
       downloadingIdRef.current ||
-      unlikingIdRef.current
+      unlikingIdRef.current ||
+      deletingIdRef.current
     ) {
       return
     }
@@ -306,7 +314,7 @@ export function AwemePanel({
   useEffect(() => {
     if (!selected) {
       setPreviewSrc((prev) => {
-        if (prev?.startsWith('blob:')) URL.revokeObjectURL(prev)
+        releaseBlobUrl(prev)
         return null
       })
       setPreviewError(null)
@@ -314,14 +322,11 @@ export function AwemePanel({
       return
     }
     let cancelled = false
-    let objectUrl: string | null = null
     setPreviewLoading(true)
     setPreviewError(null)
-    setPreviewSrc((prev) => {
-      if (prev?.startsWith('blob:')) URL.revokeObjectURL(prev)
-      return null
-    })
+    // Keep previous src until the new blob is ready — avoids decoding a revoked URL.
     void (async () => {
+      let created: string | null = null
       try {
         const path = await cachePreview({
           awemeId: selected.awemeId,
@@ -329,19 +334,28 @@ export function AwemePanel({
           playUrls: selected.playUrlCandidates,
           kind,
         })
-        // blob URL：WKWebView 下 convertFileSrc(asset://) 经常无法播放本地文件
         const bytes = await readFile(path)
         if (cancelled) return
         const lower = path.toLowerCase()
         const mime = isMusicKind(kind)
           ? lower.endsWith('.m4a')
             ? 'audio/mp4'
-            : 'audio/mpeg'
+            : lower.endsWith('.mp3')
+              ? 'audio/mpeg'
+              : 'audio/mp4'
           : 'video/mp4'
         const blob = new Blob([bytes], { type: mime })
-        objectUrl = URL.createObjectURL(blob)
-        setPreviewSrc(objectUrl)
+        created = URL.createObjectURL(blob)
+        if (cancelled) {
+          releaseBlobUrl(created)
+          return
+        }
+        setPreviewSrc((prev) => {
+          if (prev && prev !== created) releaseBlobUrl(prev)
+          return created
+        })
       } catch (e) {
+        if (created) releaseBlobUrl(created)
         if (cancelled) return
         setPreviewError(e instanceof Error ? e.message : String(e))
       } finally {
@@ -350,7 +364,7 @@ export function AwemePanel({
     })()
     return () => {
       cancelled = true
-      if (objectUrl) URL.revokeObjectURL(objectUrl)
+      // Don't revoke the active previewSrc here — the next swap / clear does.
     }
   }, [selected, kind])
 
@@ -585,6 +599,64 @@ export function AwemePanel({
     [kind, onRefreshAfterUnlike, toast],
   )
 
+  const handleDelete = useCallback(
+    async (item: DouyinAweme) => {
+      if (
+        deletingIdRef.current ||
+        unlikingIdRef.current ||
+        anyBatchActiveRef.current ||
+        seqRenamingRef.current
+      ) {
+        return
+      }
+      const entry = downloadedByIdRef.current.get(item.awemeId)
+      if (!entry) return
+
+      const label = item.desc || item.awemeId
+      const ok = window.confirm(
+        kind === 'favorite'
+          ? `确定删除「${label}」？\n将先取消喜欢（同步到抖音），再删除本地文件。`
+          : `确定删除本地文件「${label}」？\n此操作不可恢复。`,
+      )
+      if (!ok) return
+
+      setDeletingId(item.awemeId)
+      try {
+        if (kind === 'favorite') {
+          await unlikeAweme(item.awemeId)
+        }
+        await deleteDownloaded(item.awemeId, kind)
+        onUnmarkDownloaded(item.awemeId, kind)
+        if (lastPath === entry.path) setLastPath(null)
+        if (selectedRef.current?.awemeId === item.awemeId) {
+          clearPlayerSession()
+          setSelected(null)
+        } else if (getPlayerSession()?.track.id === item.awemeId) {
+          clearPlayerSession()
+        }
+        if (kind === 'favorite') {
+          await onRefreshAfterUnlike()
+          toast('已取消喜欢并删除本地文件', 'success')
+        } else {
+          toast('已删除本地文件', 'success')
+        }
+      } catch (e) {
+        toast(e instanceof Error ? e.message : String(e), 'danger')
+        void onReloadDownloaded()
+      } finally {
+        setDeletingId(null)
+      }
+    },
+    [
+      kind,
+      lastPath,
+      onRefreshAfterUnlike,
+      onReloadDownloaded,
+      onUnmarkDownloaded,
+      toast,
+    ],
+  )
+
   const handleSelect = useCallback((item: DouyinAweme) => {
     // Opening a row always expands the dialog and kills the bottom player.
     clearPlayerSession()
@@ -656,11 +728,13 @@ export function AwemePanel({
       }, 0),
     [items, downloadedById, batch.skippedById],
   )
-  const busySingle = downloadingId !== null || unlikingId !== null
+  const busySingle =
+    downloadingId !== null || unlikingId !== null || deletingId !== null
   const controlsLocked = anyBatchActive || busySingle
   anyBatchActiveRef.current = anyBatchActive
   downloadingIdRef.current = downloadingId
   unlikingIdRef.current = unlikingId
+  deletingIdRef.current = deletingId
   selectedRef.current = selected
   const virtualItems = rowVirtualizer.getVirtualItems()
 
@@ -942,6 +1016,7 @@ export function AwemePanel({
                   downloadingId === item.awemeId || batch.activeId === item.awemeId
                 const busyUnlike =
                   unlikingId === item.awemeId || batchUnlike.activeId === item.awemeId
+                const busyDelete = deletingId === item.awemeId
                 const isBatchTarget =
                   batch.activeId === item.awemeId ||
                   batchUnlike.activeId === item.awemeId
@@ -955,12 +1030,14 @@ export function AwemePanel({
                     skipped={skipped}
                     busyDownload={busyDownload}
                     busyUnlike={busyUnlike}
+                    busyDelete={busyDelete}
                     isBatchTarget={isBatchTarget}
                     anyBatchActive={anyBatchActive}
                     controlsLocked={controlsLocked}
                     onSelect={handleSelect}
                     onDownload={handleDownload}
                     onUnlike={handleUnlike}
+                    onDelete={handleDelete}
                     onReveal={handleReveal}
                     style={{
                       height: virtualRow.size,
@@ -1024,6 +1101,7 @@ export function AwemePanel({
                     downloading={downloadingId === selected.awemeId}
                     controlsLocked={controlsLocked}
                     canReveal={!!(lastPath || selectedDownloaded?.path)}
+                    deleting={deletingId === selected.awemeId}
                     resume={dialogResume}
                     hasPrev={selectedIndex > 0}
                     hasNext={selectedIndex >= 0 && selectedIndex < items.length - 1}
@@ -1037,6 +1115,7 @@ export function AwemePanel({
                     onNext={() => goPreviewOffset(1)}
                     onEnded={() => goPreviewOffset(1)}
                     onDownload={() => void handleDownload(selected)}
+                    onDelete={() => void handleDelete(selected)}
                     onReveal={() => {
                       const entry =
                         selectedDownloaded ??
@@ -1100,13 +1179,22 @@ export function AwemePanel({
                       )}
                       {!previewLoading && !previewError && previewSrc ? (
                         <video
-                          key={previewSrc}
+                          key={selected.awemeId}
                           src={previewSrc}
                           controls
                           autoPlay
                           playsInline
+                          preload="auto"
                           className="h-full max-h-full w-auto max-w-full rounded-xl object-contain"
                           poster={selected.coverUrl || undefined}
+                          onLoadStart={(e) => {
+                            // Ensure a clean pipeline when switching with ← →
+                            try {
+                              e.currentTarget.volume = 1
+                            } catch {
+                              // ignore
+                            }
+                          }}
                         />
                       ) : null}
                     </div>
@@ -1120,6 +1208,29 @@ export function AwemePanel({
                         {formatCount(selected.diggCount)} 赞
                       </div>
                       <div className="flex items-center gap-2">
+                        {selectedDownloaded && (
+                          <button
+                            type="button"
+                            disabled={controlsLocked && deletingId !== selected.awemeId}
+                            onClick={() => void handleDelete(selected)}
+                            aria-busy={deletingId === selected.awemeId}
+                            className={`inline-flex items-center gap-1.5 text-[11px] transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+                              deletingId === selected.awemeId
+                                ? 'cursor-wait text-danger'
+                                : 'text-muted hover:text-danger'
+                            }`}
+                          >
+                            <FontAwesomeIcon
+                              icon={
+                                deletingId === selected.awemeId ? faSpinner : faTrashCan
+                              }
+                              className={`h-3 w-3 ${
+                                deletingId === selected.awemeId ? 'animate-spin' : ''
+                              }`}
+                            />
+                            {deletingId === selected.awemeId ? '删除中' : '删除'}
+                          </button>
+                        )}
                         {(lastPath || selectedDownloaded?.path) && (
                           <button
                             type="button"

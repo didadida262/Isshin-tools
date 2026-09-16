@@ -106,6 +106,7 @@ pub fn run() {
             douyin::douyin_unlike,
             douyin::douyin_download,
             douyin::douyin_list_downloaded,
+            douyin::douyin_delete_downloaded,
             douyin::douyin_cache_preview,
             douyin::douyin_apply_aweme_seq,
             screenshot::screenshot_confirm,

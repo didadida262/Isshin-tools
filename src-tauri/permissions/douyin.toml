@@ -10,6 +10,7 @@ commands.allow = [
   "douyin_unlike",
   "douyin_download",
   "douyin_list_downloaded",
+  "douyin_delete_downloaded",
   "douyin_cache_preview",
   "douyin_apply_aweme_seq",
 ]

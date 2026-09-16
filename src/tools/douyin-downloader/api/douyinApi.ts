@@ -66,6 +66,16 @@ export async function listDownloaded() {
   return invoke<DouyinDownloadedEntry[]>('douyin_list_downloaded')
 }
 
+export async function deleteDownloaded(
+  awemeId: string,
+  kind?: DouyinListKind | string,
+) {
+  return invoke<void>('douyin_delete_downloaded', {
+    awemeId,
+    kind: kind ?? null,
+  })
+}
+
 /** Rename downloaded files to `{seq}_{awemeId}_{stem}.mp4`. Pass IDs oldest-first. */
 export async function applyAwemeSeq(kind: DouyinListKind, awemeIds: string[]) {
   return invoke<{ renamed: number; skipped: number }>('douyin_apply_aweme_seq', {

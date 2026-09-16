@@ -53,6 +53,17 @@ export function useDownloadedAweme() {
     })
   }, [])
 
+  const unmarkDownloaded = useCallback(
+    (awemeId: string, kind: DouyinListKind | string) => {
+      setByKey((prev) => {
+        const next = new Map(prev)
+        next.delete(downloadedKey(awemeId, kind))
+        return next
+      })
+    },
+    [],
+  )
+
   /** awemeId → entry，仅含当前喜欢/作品分类 */
   const forKind = useCallback(
     (kind: DouyinListKind) => {
@@ -68,7 +79,7 @@ export function useDownloadedAweme() {
     [byKey],
   )
 
-  return { byKey, forKind, reload, markDownloaded }
+  return { byKey, forKind, reload, markDownloaded, unmarkDownloaded }
 }
 
 export function useDownloadedMapForKind(

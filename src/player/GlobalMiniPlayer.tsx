@@ -86,17 +86,29 @@ export function GlobalMiniPlayer() {
     if (!audio) return
 
     if (!session?.minimized || !session.src) {
-      audio.pause()
+      try {
+        audio.pause()
+      } catch {
+        // ignore
+      }
       audio.removeAttribute('src')
       delete audio.dataset.playerSrc
-      audio.load()
+      try {
+        audio.load()
+      } catch {
+        // ignore
+      }
       return
     }
 
     const resumeAt = session.resumeAt ?? 0
     const applyResumeAndPlay = () => {
       if (resumeAt > 0 && Number.isFinite(resumeAt)) {
-        audio.currentTime = resumeAt
+        try {
+          audio.currentTime = resumeAt
+        } catch {
+          // ignore
+        }
         progressFillRef.current &&
           (progressFillRef.current.style.width = `${
             durationRef.current > 0
@@ -108,18 +120,31 @@ export function GlobalMiniPlayer() {
         }
         patchPlayerPlayback({ current: resumeAt })
       }
-      void audio.play().catch(() => patchPlayerPlayback({ playing: false }))
+      if (audio.paused) {
+        void audio.play().catch(() => patchPlayerPlayback({ playing: false }))
+      }
     }
 
     if (audio.dataset.playerSrc === session.src) {
-      applyResumeAndPlay()
+      // Same source — only seek when docking with a resume offset; don't restart.
+      if (resumeAt > 0) applyResumeAndPlay()
+      else if (audio.paused) {
+        void audio.play().catch(() => patchPlayerPlayback({ playing: false }))
+      }
       return
     }
 
+    try {
+      audio.pause()
+    } catch {
+      // ignore
+    }
     audio.dataset.playerSrc = session.src
     audio.src = session.src
-    if (audio.readyState >= 1) applyResumeAndPlay()
-    else audio.addEventListener('loadedmetadata', applyResumeAndPlay, { once: true })
+    const onCanPlay = () => applyResumeAndPlay()
+    audio.addEventListener('canplay', onCanPlay, { once: true })
+    if (audio.readyState >= 3) applyResumeAndPlay()
+    return () => audio.removeEventListener('canplay', onCanPlay)
   }, [session?.src, session?.minimized, session?.resumeAt])
 
   const paintProgress = (seconds: number) => {

@@ -1221,3 +1221,70 @@ pub async fn douyin_apply_aweme_seq(
 
     Ok(DouyinApplySeqResult { renamed, skipped })
 }
+
+fn ensure_deletable_under_root(path: &Path, root: &Path) -> Result<PathBuf, String> {
+    let canon_root = root
+        .canonicalize()
+        .map_err(|e| format!("解析下载目录失败: {e}"))?;
+    let canon_path = path
+        .canonicalize()
+        .map_err(|e| format!("解析文件路径失败: {e}"))?;
+    if !canon_path.starts_with(&canon_root) {
+        return Err("文件不在下载目录内，拒绝删除".into());
+    }
+    if canon_path.file_name().and_then(|n| n.to_str()) == Some("index.json") {
+        return Err("不能删除下载索引".into());
+    }
+    if !canon_path.is_file() {
+        return Err("路径不是可删除的文件".into());
+    }
+    Ok(canon_path)
+}
+
+#[tauri::command]
+pub async fn douyin_delete_downloaded(
+    app: AppHandle,
+    aweme_id: String,
+    kind: Option<String>,
+) -> Result<(), String> {
+    let aweme_id = aweme_id.trim().to_string();
+    if aweme_id.is_empty() {
+        return Err("aweme_id 无效".into());
+    }
+    let kind_folder = normalize_kind_folder(kind.as_deref().unwrap_or("likes"));
+    let key = index_entry_key(kind_folder, &aweme_id);
+    let root = resolve_download_root(&app)?;
+    let _guard = index_lock().lock().await;
+    let mut index = load_index(&root).await?;
+    let Some(entry) = index.entries.get(&key).cloned() else {
+        // Try recovering a stale path the same way list_downloaded does.
+        let kind_dir = root.join(kind_folder);
+        if let Some(found) = find_downloaded_by_aweme_id(&kind_dir, &aweme_id) {
+            let canon = ensure_deletable_under_root(&found, &root)?;
+            fs::remove_file(&canon)
+                .await
+                .map_err(|e| format!("删除文件失败: {e}"))?;
+            return Ok(());
+        }
+        return Err("未找到该作品的本地下载记录".into());
+    };
+
+    let path = PathBuf::from(&entry.path);
+    if path.exists() {
+        let canon = ensure_deletable_under_root(&path, &root)?;
+        fs::remove_file(&canon)
+            .await
+            .map_err(|e| format!("删除文件失败: {e}"))?;
+    } else {
+        let kind_dir = root.join(kind_folder);
+        if let Some(found) = find_downloaded_by_aweme_id(&kind_dir, &aweme_id) {
+            let canon = ensure_deletable_under_root(&found, &root)?;
+            fs::remove_file(&canon)
+                .await
+                .map_err(|e| format!("删除文件失败: {e}"))?;
+        }
+    }
+
+    index.entries.remove(&key);
+    save_index(&root, &index).await
+}

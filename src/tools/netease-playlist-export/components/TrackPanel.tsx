@@ -53,6 +53,7 @@ import {
 import type { ExportFormat, NeteasePlaylist, NeteaseTrack } from '../types'
 import { ResourceSniffDialog } from './ResourceSniffDialog'
 import { TrackPreviewDialog } from './TrackPreviewDialog'
+import { releaseBlobUrl } from '@/lib/mediaBlob'
 
 const TRACK_ROW_HEIGHT = 52
 const TRACK_GRID =
@@ -226,7 +227,7 @@ export function TrackPanel({
   useEffect(() => {
     if (!previewTrack) {
       setPreviewSrc((prev) => {
-        if (prev?.startsWith('blob:')) URL.revokeObjectURL(prev)
+        releaseBlobUrl(prev)
         return null
       })
       setPreviewError(null)
@@ -237,7 +238,7 @@ export function TrackPanel({
     const entry = bySongIdRef.current.get(previewTrack.songId)
     if (!entry) {
       setPreviewSrc((prev) => {
-        if (prev?.startsWith('blob:')) URL.revokeObjectURL(prev)
+        releaseBlobUrl(prev)
         return null
       })
       setPreviewLoading(false)
@@ -246,17 +247,12 @@ export function TrackPanel({
     }
 
     let cancelled = false
-    let objectUrl: string | null = null
     setPreviewLoading(true)
     setPreviewError(null)
-    setPreviewSrc((prev) => {
-      if (prev?.startsWith('blob:')) URL.revokeObjectURL(prev)
-      return null
-    })
 
     void (async () => {
+      let created: string | null = null
       try {
-        // blob URL：WKWebView 下 convertFileSrc(asset://) 经常无法播放本地文件
         const bytes = await readFile(entry.path)
         if (cancelled) return
         const lower = entry.path.toLowerCase()
@@ -266,9 +262,17 @@ export function TrackPanel({
             ? 'audio/mpeg'
             : 'audio/mp4'
         const blob = new Blob([bytes], { type: mime })
-        objectUrl = URL.createObjectURL(blob)
-        setPreviewSrc(objectUrl)
+        created = URL.createObjectURL(blob)
+        if (cancelled) {
+          releaseBlobUrl(created)
+          return
+        }
+        setPreviewSrc((prev) => {
+          if (prev && prev !== created) releaseBlobUrl(prev)
+          return created
+        })
       } catch (e) {
+        if (created) releaseBlobUrl(created)
         if (cancelled) return
         setPreviewError(e instanceof Error ? e.message : String(e))
       } finally {
@@ -278,7 +282,6 @@ export function TrackPanel({
 
     return () => {
       cancelled = true
-      if (objectUrl) URL.revokeObjectURL(objectUrl)
     }
   }, [previewTrack])
 

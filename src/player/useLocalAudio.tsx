@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
-
 import { getPlayMode } from './playerStore'
+import { stopMediaElement } from '@/lib/mediaBlob'
 
 export type AudioSnapshot = {
   current: number
@@ -29,43 +29,73 @@ export function useLocalAudio(
   resumeRef.current = opts?.resume ?? null
   const onEndedRef = useRef(opts?.onEnded)
   onEndedRef.current = opts?.onEnded
+  const playGenRef = useRef(0)
 
   useEffect(() => {
     const audio = audioRef.current
     if (!audio || !enabled) return
 
+    const gen = ++playGenRef.current
+
     if (!src) {
-      audio.removeAttribute('src')
+      stopMediaElement(audio)
       delete audio.dataset.localSrc
-      audio.load()
       setPlaying(false)
       setCurrent(0)
       return
     }
 
     if (audio.dataset.localSrc === src) return
+
+    // Stop previous decode pipeline before attaching a new blob URL.
+    try {
+      audio.pause()
+    } catch {
+      // ignore
+    }
+
     audio.dataset.localSrc = src
     audio.src = src
 
     const resume = resumeRef.current
     const start = () => {
+      if (gen !== playGenRef.current) return
       if (resume && resume.current > 0) {
-        audio.currentTime = resume.current
-        setCurrent(resume.current)
+        try {
+          audio.currentTime = resume.current
+          setCurrent(resume.current)
+        } catch {
+          // ignore seek errors on fresh buffers
+        }
       }
-      if (!resume || resume.playing) {
-        void audio.play().catch(() => setPlaying(false))
+      if (!resume || resume.playing !== false) {
+        void audio.play().catch(() => {
+          if (gen === playGenRef.current) setPlaying(false)
+        })
       }
       resumeRef.current = null
     }
 
-    if (audio.readyState >= 1) start()
-    else {
-      const onMeta = () => start()
-      audio.addEventListener('loadedmetadata', onMeta, { once: true })
-      return () => audio.removeEventListener('loadedmetadata', onMeta)
+    const onCanPlay = () => start()
+    audio.addEventListener('canplay', onCanPlay, { once: true })
+    // Fallback if canplay already fired / cached
+    if (audio.readyState >= 3) start()
+
+    return () => {
+      audio.removeEventListener('canplay', onCanPlay)
+      try {
+        audio.pause()
+      } catch {
+        // ignore
+      }
     }
   }, [src, enabled])
+
+  useEffect(() => {
+    return () => {
+      stopMediaElement(audioRef.current)
+    }
+  }, [])
 
   const toggle = () => {
     const audio = audioRef.current
@@ -77,8 +107,12 @@ export function useLocalAudio(
   const seek = (seconds: number) => {
     const audio = audioRef.current
     if (!audio) return
-    audio.currentTime = seconds
-    setCurrent(seconds)
+    try {
+      audio.currentTime = seconds
+      setCurrent(seconds)
+    } catch {
+      // ignore
+    }
   }
 
   const snapshot = (): AudioSnapshot => {
@@ -101,7 +135,11 @@ export function useLocalAudio(
         if (getPlayMode() === 'loop-one') {
           const audio = audioRef.current
           if (!audio) return
-          audio.currentTime = 0
+          try {
+            audio.currentTime = 0
+          } catch {
+            // ignore
+          }
           setCurrent(0)
           void audio.play().catch(() => setPlaying(false))
           return

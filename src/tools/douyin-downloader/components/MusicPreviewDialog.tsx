@@ -10,6 +10,7 @@ import {
   faPause,
   faPlay,
   faSpinner,
+  faTrashCan,
   faWindowMinimize,
   faXmark,
 } from '@fortawesome/free-solid-svg-icons'
@@ -33,11 +34,13 @@ export interface MusicPreviewDialogProps {
   downloading: boolean
   controlsLocked: boolean
   canReveal: boolean
+  deleting?: boolean
   resume?: AudioSnapshot | null
   onMinimize: (snapshot: AudioSnapshot) => void
   onClose: () => void
   onDownload: () => void
   onReveal: () => void
+  onDelete?: () => void
   onPrev: () => void
   onNext: () => void
   onEnded?: () => void
@@ -55,11 +58,13 @@ export function MusicPreviewDialog({
   downloading,
   controlsLocked,
   canReveal,
+  deleting = false,
   resume,
   onMinimize,
   onClose,
   onDownload,
   onReveal,
+  onDelete,
   onPrev,
   onNext,
   onEnded,
@@ -278,6 +283,25 @@ export function MusicPreviewDialog({
           ) : null}
         </div>
         <div className="flex items-center gap-2">
+          {downloaded && onDelete && (
+            <button
+              type="button"
+              disabled={controlsLocked && !deleting}
+              onClick={onDelete}
+              aria-busy={deleting}
+              className={`inline-flex items-center gap-1.5 text-[11px] transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+                deleting
+                  ? 'cursor-wait text-danger'
+                  : 'text-white/45 hover:text-danger'
+              }`}
+            >
+              <FontAwesomeIcon
+                icon={deleting ? faSpinner : faTrashCan}
+                className={`h-3 w-3 ${deleting ? 'animate-spin' : ''}`}
+              />
+              {deleting ? '删除中' : '删除'}
+            </button>
+          )}
           {canReveal && (
             <button
               type="button"
