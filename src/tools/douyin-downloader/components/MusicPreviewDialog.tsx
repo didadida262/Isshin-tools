@@ -172,7 +172,7 @@ export function MusicPreviewDialog({
               {item.authorName || '未知作者'}
             </p>
             <p className="mt-2 text-[10px] tracking-wide text-white/35">
-              ↑↓ 切换曲目 · Esc 关闭 · 最小化后加入底栏播放器
+              ← → / ↑↓ 切换曲目 · Esc 关闭 · 最小化后加入底栏播放器
             </p>
           </div>
         </div>

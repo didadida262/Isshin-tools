@@ -469,11 +469,20 @@ export function AwemePanel({
         }
         return
       }
-      if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return
+      if (
+        e.key !== 'ArrowUp' &&
+        e.key !== 'ArrowDown' &&
+        e.key !== 'ArrowLeft' &&
+        e.key !== 'ArrowRight'
+      ) {
+        return
+      }
       const tag = (e.target as HTMLElement | null)?.tagName
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return
       e.preventDefault()
-      goPreviewOffset(e.key === 'ArrowUp' ? -1 : 1)
+      goPreviewOffset(
+        e.key === 'ArrowUp' || e.key === 'ArrowLeft' ? -1 : 1,
+      )
     }
     window.addEventListener('keydown', onKey)
     const prev = document.body.style.overflow
@@ -1064,6 +1073,9 @@ export function AwemePanel({
                         </h2>
                         <p className="mt-1 line-clamp-2 text-xs text-muted">
                           {selected.desc || selected.awemeId}
+                        </p>
+                        <p className="mt-1 text-[10px] tracking-wide text-subtle">
+                          ← → 切换 · Esc 关闭
                         </p>
                       </div>
                       <button
