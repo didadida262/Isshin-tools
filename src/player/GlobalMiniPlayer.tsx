@@ -193,12 +193,12 @@ export function GlobalMiniPlayer() {
               />
             </div>
 
-            <div className="mx-auto flex h-16 max-w-6xl items-center gap-3 px-3 md:gap-4 md:px-5">
+            <div className="grid h-16 w-full grid-cols-[1fr_auto_1fr] items-center gap-2 px-3 md:px-4">
               <button
                 type="button"
                 onClick={() => playerExpand()}
                 title="展开播放页"
-                className="group flex min-w-0 flex-1 items-center gap-3 text-left"
+                className="group flex min-w-0 items-center gap-3 justify-self-start text-left"
               >
                 <div className="relative h-11 w-11 shrink-0 overflow-hidden rounded-md bg-white/10 ring-1 ring-white/10">
                   {session.track.coverUrl ? (
@@ -224,7 +224,7 @@ export function GlobalMiniPlayer() {
                 </div>
               </button>
 
-              <div className="flex shrink-0 items-center gap-1 sm:gap-2">
+              <div className="flex shrink-0 items-center justify-center gap-1 sm:gap-2">
                 <PlayModeToggle size="sm" />
                 <button
                   type="button"
@@ -262,31 +262,33 @@ export function GlobalMiniPlayer() {
                 </button>
               </div>
 
-              <div className="hidden min-w-30 shrink-0 items-center justify-end gap-2 text-[10px] tabular-nums text-white/40 md:flex">
-                <span ref={timeLabelRef}>{formatClock(playback.current)}</span>
-                <span className="text-white/20">/</span>
-                <span>{formatClock(playback.duration)}</span>
+              <div className="flex min-w-0 items-center justify-end gap-2 justify-self-end">
+                <div className="hidden items-center gap-1.5 text-[10px] tabular-nums text-white/40 md:flex">
+                  <span ref={timeLabelRef}>{formatClock(playback.current)}</span>
+                  <span className="text-white/20">/</span>
+                  <span>{formatClock(playback.duration)}</span>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => playerExpand()}
+                  title="展开播放页"
+                  className="inline-flex h-7 w-7 items-center justify-center rounded-full text-white/35 transition-colors hover:bg-white/10 hover:text-white/70"
+                  aria-label="展开播放页"
+                >
+                  <FontAwesomeIcon icon={faUpRightAndDownLeftFromCenter} className="!h-3 !w-3" />
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => playerClose()}
+                  className="inline-flex h-7 w-7 items-center justify-center rounded-full text-white/35 transition-colors hover:bg-white/10 hover:text-white/70"
+                  aria-label="关闭播放"
+                  title="关闭"
+                >
+                  <FontAwesomeIcon icon={faXmark} className="!h-3 !w-3" />
+                </button>
               </div>
-
-              <button
-                type="button"
-                onClick={() => playerClose()}
-                className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-white/40 transition-colors hover:bg-white/10 hover:text-white"
-                aria-label="关闭播放"
-                title="关闭"
-              >
-                <FontAwesomeIcon icon={faXmark} className="h-3.5 w-3.5" />
-              </button>
-
-              <button
-                type="button"
-                onClick={() => playerExpand()}
-                title="展开播放页"
-                className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-white/40 transition-colors hover:bg-white/10 hover:text-white"
-                aria-label="展开播放页"
-              >
-                <FontAwesomeIcon icon={faUpRightAndDownLeftFromCenter} className="h-3 w-3" />
-              </button>
             </div>
 
             {canControl && (
