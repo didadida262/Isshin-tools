@@ -2078,7 +2078,7 @@ dependencies = [
 
 [[package]]
 name = "isshin-tools"
-version = "1.0.17"
+version = "1.0.18"
 dependencies = [
  "aes",
  "arboard",
