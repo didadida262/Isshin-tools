@@ -286,8 +286,9 @@ export function TrackPanel({
     scrollToSongId(songId)
   }, [scrollToSongId])
 
+  /** Prev/next only land on locally downloaded tracks (skip undownloaded). */
   const goPreviewOffset = useCallback(
-    (delta: number, opts?: { preferDownloaded?: boolean }) => {
+    (delta: number) => {
       const list = filteredRef.current
       const currentId = previewTrackRef.current?.songId
       const index = currentId
@@ -295,31 +296,36 @@ export function TrackPanel({
         : -1
       if (index < 0) return
 
-      if (opts?.preferDownloaded) {
-        let nextIndex = index + delta
-        while (nextIndex >= 0 && nextIndex < list.length) {
-          const candidate = list[nextIndex]
-          if (candidate && bySongIdRef.current.has(candidate.songId)) {
-            setDialogResume(null)
-            setPreviewTrack(candidate)
-            scrollPreviewIntoView(candidate.songId)
-            return
-          }
-          nextIndex += delta
+      let nextIndex = index + delta
+      while (nextIndex >= 0 && nextIndex < list.length) {
+        const candidate = list[nextIndex]
+        if (candidate && bySongIdRef.current.has(candidate.songId)) {
+          setDialogResume(null)
+          setPreviewTrack(candidate)
+          scrollPreviewIntoView(candidate.songId)
+          return
         }
-        return
+        nextIndex += delta
       }
-
-      const nextIndex = index + delta
-      if (nextIndex < 0 || nextIndex >= list.length) return
-      const next = list[nextIndex]
-      if (!next) return
-      setDialogResume(null)
-      setPreviewTrack(next)
-      scrollPreviewIntoView(next.songId)
     },
     [scrollPreviewIntoView],
   )
+
+  const hasDownloadedNeighbor = useCallback(
+    (fromIndex: number, delta: number) => {
+      let i = fromIndex + delta
+      while (i >= 0 && i < filtered.length) {
+        const t = filtered[i]
+        if (t && bySongId.has(t.songId)) return true
+        i += delta
+      }
+      return false
+    },
+    [filtered, bySongId],
+  )
+
+  const previewHasPrev = previewIndex >= 0 && hasDownloadedNeighbor(previewIndex, -1)
+  const previewHasNext = previewIndex >= 0 && hasDownloadedNeighbor(previewIndex, 1)
 
   useEffect(() => {
     if (!previewTrack) {
@@ -353,13 +359,25 @@ export function TrackPanel({
         error: previewError,
         minimized: true,
         resumeAt: resumeAt > 0 ? resumeAt : undefined,
-        hasPrev: index > 0,
-        hasNext: index >= 0 && index < list.length - 1,
+        hasPrev: (() => {
+          for (let i = index - 1; i >= 0; i -= 1) {
+            const t = list[i]
+            if (t && bySongIdRef.current.has(t.songId)) return true
+          }
+          return false
+        })(),
+        hasNext: (() => {
+          for (let i = index + 1; i < list.length; i += 1) {
+            const t = list[i]
+            if (t && bySongIdRef.current.has(t.songId)) return true
+          }
+          return false
+        })(),
       },
       {
         onPrev: () => goPreviewOffset(-1),
         onNext: () => goPreviewOffset(1),
-        onEnded: () => goPreviewOffset(1, { preferDownloaded: true }),
+        onEnded: () => goPreviewOffset(1),
         onExpand: () => {
           const pb = getPlayerPlayback()
           setDialogResume({
@@ -694,7 +712,8 @@ export function TrackPanel({
   const openPreview = useCallback(
     (track: NeteaseTrack) => {
       if (batchActive) return
-      // Opening a row always expands the dialog and kills the bottom player.
+      // Only locally downloaded tracks can open the player.
+      if (!bySongIdRef.current.has(track.songId)) return
       clearPlayerSession()
       setDialogResume(null)
       setPreviewMinimized(false)
@@ -918,17 +937,26 @@ export function TrackPanel({
                 const track = filtered[virtualRow.index]
                 if (!track) return null
                 const downloaded = bySongId.get(track.songId)
+                const canPreview = !!downloaded
                 const isBatchTarget = batchSongId === track.songId
                 const isPreviewing = previewTrack?.songId === track.songId
                 return (
                   <div
                     key={track.songId}
                     role="row"
-                    onClick={() => openPreview(track)}
-                    className={`absolute top-0 left-0 grid w-full cursor-pointer items-center border-b border-border-subtle/60 transition-colors duration-150 ${
-                      isPreviewing || isBatchTarget
-                        ? 'bg-surface-hover/70'
-                        : 'hover:bg-surface-hover/50'
+                    onClick={() => {
+                      if (canPreview) openPreview(track)
+                    }}
+                    title={canPreview ? undefined : '请先嗅探下载到本地后再播放'}
+                    aria-disabled={!canPreview}
+                    className={`absolute top-0 left-0 grid w-full items-center border-b border-border-subtle/60 transition-colors duration-150 ${
+                      canPreview
+                        ? `cursor-pointer ${
+                            isPreviewing || isBatchTarget
+                              ? 'bg-surface-hover/70'
+                              : 'hover:bg-surface-hover/50'
+                          }`
+                        : 'cursor-not-allowed opacity-55'
                     }`}
                     style={{
                       height: virtualRow.size,
@@ -1068,8 +1096,8 @@ export function TrackPanel({
                   downloaded={previewDownloaded}
                   canReveal={!!previewDownloaded?.path}
                   resume={dialogResume}
-                  hasPrev={previewIndex > 0}
-                  hasNext={previewIndex >= 0 && previewIndex < filtered.length - 1}
+                  hasPrev={previewHasPrev}
+                  hasNext={previewHasNext}
                   onMinimize={(snap) => {
                     dockResumeRef.current = snap.current
                     setDialogResume(null)
@@ -1078,7 +1106,7 @@ export function TrackPanel({
                   onClose={closePreview}
                   onPrev={() => goPreviewOffset(-1)}
                   onNext={() => goPreviewOffset(1)}
-                  onEnded={() => goPreviewOffset(1, { preferDownloaded: true })}
+                  onEnded={() => goPreviewOffset(1)}
                   onReveal={() => {
                     if (previewDownloaded?.path) void revealExport(previewDownloaded.path)
                   }}
