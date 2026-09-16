@@ -14,7 +14,6 @@ export function NeteasePlaylistExportTool() {
     usePlaylists(userId)
 
   const [selected, setSelected] = useState<NeteasePlaylist | null>(null)
-  const [playlistFilter, setPlaylistFilter] = useState('')
   const {
     tracks,
     loading: tracksLoading,
@@ -55,8 +54,6 @@ export function NeteasePlaylistExportTool() {
             loading={playlistsLoading}
             error={playlistsError}
             selectedId={selected?.id ?? null}
-            filter={playlistFilter}
-            onFilterChange={setPlaylistFilter}
             onSelect={setSelected}
             onRetry={() => void reloadPlaylists()}
           />

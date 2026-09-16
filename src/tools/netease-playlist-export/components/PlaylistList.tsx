@@ -1,5 +1,3 @@
-import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
-import { faMagnifyingGlass } from '@fortawesome/free-solid-svg-icons'
 import { motion } from 'framer-motion'
 import { ErrorState } from '@/components/ErrorState'
 import { PlaylistListSkeleton } from '@/components/Skeleton'
@@ -10,8 +8,6 @@ interface PlaylistListProps {
   loading: boolean
   error: string | null
   selectedId: number | null
-  filter: string
-  onFilterChange: (value: string) => void
   onSelect: (playlist: NeteasePlaylist) => void
   onRetry: () => void
 }
@@ -21,34 +17,15 @@ export function PlaylistList({
   loading,
   error,
   selectedId,
-  filter,
-  onFilterChange,
   onSelect,
   onRetry,
 }: PlaylistListProps) {
-  const filtered = playlists.filter((p) =>
-    p.name.toLowerCase().includes(filter.trim().toLowerCase()),
-  )
-
   return (
     <section className="flex h-full min-h-0 flex-col overflow-hidden rounded-2xl border border-border-subtle bg-surface/60">
       <header className="shrink-0 border-b border-border-subtle px-4 py-3">
         <div className="flex items-center justify-between gap-2">
           <h3 className="text-sm font-medium text-foreground">歌单</h3>
           <span className="text-[11px] text-subtle">{playlists.length}</span>
-        </div>
-        <div className="relative mt-2.5">
-          <FontAwesomeIcon
-            icon={faMagnifyingGlass}
-            className="pointer-events-none absolute top-1/2 left-2.5 h-3 w-3 -translate-y-1/2 text-subtle"
-          />
-          <input
-            value={filter}
-            onChange={(e) => onFilterChange(e.target.value)}
-            placeholder="过滤歌单名"
-            aria-label="过滤歌单名"
-            className="w-full rounded-xl border border-border bg-background py-1.5 pr-3 pl-8 text-xs text-foreground outline-none transition-all duration-200 placeholder:text-subtle focus:border-muted"
-          />
         </div>
       </header>
 
@@ -57,12 +34,12 @@ export function PlaylistList({
         {!loading && error && (
           <ErrorState message={error} onRetry={onRetry} title="歌单加载失败" />
         )}
-        {!loading && !error && filtered.length === 0 && (
+        {!loading && !error && playlists.length === 0 && (
           <p className="px-4 py-10 text-center text-xs text-muted">暂无歌单</p>
         )}
-        {!loading && !error && filtered.length > 0 && (
+        {!loading && !error && playlists.length > 0 && (
           <ul className="space-y-0.5 p-2">
-            {filtered.map((playlist, index) => {
+            {playlists.map((playlist, index) => {
               const active = playlist.id === selectedId
               return (
                 <motion.li

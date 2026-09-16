@@ -13,7 +13,7 @@ use tokio::io::AsyncWriteExt;
 use tokio::sync::Mutex;
 use uuid::Uuid;
 
-use crate::video_trim::resolve_ffmpeg;
+use crate::ffmpeg::resolve_ffmpeg;
 
 const USER_AGENT_VALUE: &str =
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";

@@ -19,7 +19,6 @@
     "http:default",
     "allow-http-get-text",
     "allow-netease",
-    "allow-video-trim",
     "allow-bilibili",
     "allow-douyin",
     "allow-screenshot",

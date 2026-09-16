@@ -36,6 +36,7 @@ export function DouyinDownloaderTool() {
           profile={auth.profile}
           error={auth.error}
           onOpenLogin={() => void auth.openLogin()}
+          onCancelAwaiting={() => void auth.cancelAwaitingLogin()}
           onLogout={() => void auth.logout()}
         />
       </div>

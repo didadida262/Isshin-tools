@@ -11,6 +11,7 @@ interface LoginPanelProps {
   profile: DouyinProfile | null
   error: string | null
   onOpenLogin: () => void
+  onCancelAwaiting?: () => void
   onLogout: () => void
 }
 
@@ -19,6 +20,7 @@ export function LoginPanel({
   profile,
   error,
   onOpenLogin,
+  onCancelAwaiting,
   onLogout,
 }: LoginPanelProps) {
   if (status === 'authenticated' && profile) {
@@ -76,22 +78,33 @@ export function LoginPanel({
         Cookie，也不会因为翻页而失效。登录状态保存在本机，下次直接可用。
       </p>
 
-      <button
-        type="button"
-        disabled={checking || waiting}
-        onClick={onOpenLogin}
-        className="mt-4 inline-flex items-center gap-2 rounded-xl bg-accent px-3.5 py-2 text-xs font-medium text-accent-fg transition-all duration-200 hover:opacity-90 disabled:opacity-50"
-      >
-        <FontAwesomeIcon
-          icon={checking || waiting ? faSpinner : faArrowUpRightFromSquare}
-          className={`h-3 w-3 ${checking || waiting ? 'animate-spin' : ''}`}
-        />
-        {checking ? '检测登录状态…' : waiting ? '等待登录完成…' : '打开抖音登录'}
-      </button>
+      <div className="mt-4 flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          disabled={checking}
+          onClick={onOpenLogin}
+          className="inline-flex items-center gap-2 rounded-xl bg-accent px-3.5 py-2 text-xs font-medium text-accent-fg transition-all duration-200 hover:opacity-90 disabled:opacity-50"
+        >
+          <FontAwesomeIcon
+            icon={checking || waiting ? faSpinner : faArrowUpRightFromSquare}
+            className={`h-3 w-3 ${checking || waiting ? 'animate-spin' : ''}`}
+          />
+          {checking ? '检测登录状态…' : waiting ? '等待登录完成…' : '打开抖音登录'}
+        </button>
+        {waiting && onCancelAwaiting && (
+          <button
+            type="button"
+            onClick={onCancelAwaiting}
+            className="inline-flex items-center gap-2 rounded-xl border border-border px-3.5 py-2 text-xs text-muted transition-all duration-200 hover:border-muted hover:bg-surface-hover hover:text-foreground"
+          >
+            取消等待
+          </button>
+        )}
+      </div>
 
       {waiting && (
         <p className="mt-3 text-[11px] leading-relaxed text-subtle">
-          在弹出的抖音窗口里完成登录后，这里会自动识别，无需回来点任何按钮。
+          在弹出的抖音窗口里完成登录后，这里会自动识别。关掉窗口或点「取消等待」可重新打开登录。
         </p>
       )}
 

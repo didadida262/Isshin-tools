@@ -10,7 +10,6 @@ const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 const capabilitiesPath = join(root, 'src-tauri/capabilities/default.json')
 const httpPermissionsPath = join(root, 'src-tauri/permissions/http-get-text.toml')
 const neteasePermissionsPath = join(root, 'src-tauri/permissions/netease.toml')
-const videoTrimPermissionsPath = join(root, 'src-tauri/permissions/video-trim.toml')
 const bilibiliPermissionsPath = join(root, 'src-tauri/permissions/bilibili.toml')
 const douyinPermissionsPath = join(root, 'src-tauri/permissions/douyin.toml')
 const screenshotPermissionsPath = join(root, 'src-tauri/permissions/screenshot.toml')
@@ -30,7 +29,6 @@ const required = [
   'core:default',
   'allow-http-get-text',
   'allow-netease',
-  'allow-video-trim',
   'allow-bilibili',
   'allow-douyin',
   'allow-screenshot',
@@ -52,11 +50,6 @@ if (!existsSync(httpPermissionsPath)) {
 
 if (!existsSync(neteasePermissionsPath)) {
   console.error('[verify-tauri-acl] 缺少 src-tauri/permissions/netease.toml')
-  process.exit(1)
-}
-
-if (!existsSync(videoTrimPermissionsPath)) {
-  console.error('[verify-tauri-acl] 缺少 src-tauri/permissions/video-trim.toml')
   process.exit(1)
 }
 

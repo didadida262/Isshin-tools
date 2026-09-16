@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { listen } from '@tauri-apps/api/event'
 import {
   fetchProfile,
   hideLoginWindow,
@@ -17,12 +18,15 @@ export function useDouyinAuth() {
   const [error, setError] = useState<string | null>(null)
   const pollRef = useRef<number | null>(null)
   const bootstrapped = useRef(false)
+  /** Ignore stale poll ticks after cancel / window-close. */
+  const pollGeneration = useRef(0)
 
   const clearPoll = useCallback(() => {
     if (pollRef.current !== null) {
       window.clearInterval(pollRef.current)
       pollRef.current = null
     }
+    pollGeneration.current += 1
   }, [])
 
   const applyProfile = useCallback((next: DouyinProfile) => {
@@ -36,12 +40,15 @@ export function useDouyinAuth() {
   const startPolling = useCallback(() => {
     clearPoll()
     const startedAt = Date.now()
+    const generation = pollGeneration.current
     pollRef.current = window.setInterval(() => {
       void (async () => {
+        if (generation !== pollGeneration.current) return
         try {
           applyProfile(await fetchProfile())
           clearPoll()
         } catch {
+          if (generation !== pollGeneration.current) return
           if (Date.now() - startedAt < POLL_TIMEOUT_MS) return
           clearPoll()
           setStatus('anonymous')
@@ -49,6 +56,17 @@ export function useDouyinAuth() {
         }
       })()
     }, POLL_INTERVAL_MS)
+  }, [applyProfile, clearPoll])
+
+  const cancelAwaitingLogin = useCallback(async () => {
+    clearPoll()
+    setError(null)
+    try {
+      applyProfile(await fetchProfile())
+    } catch {
+      setProfile(null)
+      setStatus('anonymous')
+    }
   }, [applyProfile, clearPoll])
 
   const openLogin = useCallback(async () => {
@@ -88,6 +106,18 @@ export function useDouyinAuth() {
     })()
   }, [applyProfile])
 
+  useEffect(() => {
+    let unlisten: (() => void) | undefined
+    void listen('douyin-login-closed', () => {
+      void cancelAwaitingLogin()
+    }).then((fn) => {
+      unlisten = fn
+    })
+    return () => {
+      unlisten?.()
+    }
+  }, [cancelAwaitingLogin])
+
   useEffect(() => () => clearPoll(), [clearPoll])
 
   return {
@@ -97,6 +127,7 @@ export function useDouyinAuth() {
     /** Stable across msToken rotation, unlike the raw cookie. */
     sessionKey: profile?.secUid ?? null,
     openLogin,
+    cancelAwaitingLogin,
     logout,
   }
 }

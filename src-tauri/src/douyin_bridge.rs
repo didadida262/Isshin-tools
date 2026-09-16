@@ -14,7 +14,7 @@ use serde_json::Value;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex as StdMutex;
 use std::time::{Duration, Instant};
-use tauri::{AppHandle, Manager, Url, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
+use tauri::{AppHandle, Emitter, Manager, Url, WebviewUrl, WebviewWindow, WebviewWindowBuilder, WindowEvent};
 use tokio::sync::{oneshot, Mutex};
 use tokio::time::sleep;
 
@@ -212,6 +212,24 @@ fn create_window(app: &AppHandle, visible: bool) -> Result<WebviewWindow, String
                     .initialization_script(BRIDGE_SCRIPT)
                     .build()
                     .map_err(|e| format!("创建签名 WebView 失败: {e}"))
+            })
+            .map(|window| {
+                // Closing the window should not destroy the bridge (cookies +
+                // signing SDK live here). Hide it and tell the UI that login
+                // waiting can stop so the user can reopen.
+                let app_for_event = handle.clone();
+                window.on_window_event(move |event| {
+                    if let WindowEvent::CloseRequested { api, .. } = event {
+                        api.prevent_close();
+                        if let Some(w) = app_for_event.get_webview_window(BRIDGE_LABEL) {
+                            let _ = w.hide();
+                        }
+                        if let Some(main) = app_for_event.get_webview_window("main") {
+                            let _ = main.emit("douyin-login-closed", ());
+                        }
+                    }
+                });
+                window
             });
         let _ = tx.send(built);
     })

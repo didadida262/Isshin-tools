@@ -1,10 +1,10 @@
 mod bilibili;
 mod douyin;
 mod douyin_bridge;
+mod ffmpeg;
 mod http_fetch;
 mod netease;
 mod screenshot;
-mod video_trim;
 
 use netease::NeteaseResponse;
 use serde_json::Value;
@@ -92,8 +92,6 @@ pub fn run() {
             netease_weapi,
             netease_qr_url,
             http_fetch::http_get_text,
-            video_trim::scan_video_dir,
-            video_trim::trim_video_end,
             bilibili::bilibili_search,
             bilibili::bilibili_download,
             bilibili::bilibili_list_downloaded,

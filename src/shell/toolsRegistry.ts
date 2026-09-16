@@ -5,12 +5,10 @@ import {
   faClapperboard,
   faHelicopter,
   faMusic,
-  faScissors,
   faDownload,
 } from '@fortawesome/free-solid-svg-icons'
 import { NeteasePlaylistExportTool } from '@/tools/netease-playlist-export'
 import { GoldFactorsTool } from '@/tools/gold-factors'
-import { DouyinTrimEndTool } from '@/tools/douyin-trim-end'
 import { DouyinDownloaderTool } from '@/tools/douyin-downloader'
 import { BilibiliDownloaderTool } from '@/tools/bilibili-downloader'
 import { DroneTrainingTool } from '@/tools/drone-training'
@@ -44,13 +42,6 @@ export const toolsRegistry: ToolDefinition[] = [
     description: '作品 / 喜欢列表 · 预览与下载',
     icon: faDownload,
     component: DouyinDownloaderTool,
-  },
-  {
-    id: 'douyin-trim-end',
-    name: '抖音结尾切除',
-    description: '批量切除视频末尾冗余帧',
-    icon: faScissors,
-    component: DouyinTrimEndTool,
   },
   {
     id: 'bilibili-downloader',

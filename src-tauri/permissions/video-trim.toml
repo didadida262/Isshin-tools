@@ -1,4 +1,0 @@
-[[permission]]
-identifier = "allow-video-trim"
-description = "Allow scanning a directory and trimming video endings via bundled ffmpeg"
-commands.allow = ["scan_video_dir", "trim_video_end"]
