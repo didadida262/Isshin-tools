@@ -1,4 +1,5 @@
 export { GlobalMiniPlayer } from './GlobalMiniPlayer'
+export { PlayModeToggle } from './PlayModeToggle'
 export { useLocalAudio, type AudioSnapshot } from './useLocalAudio'
 export {
   usePlayer,

@@ -1,18 +1,15 @@
 import { useEffect, useRef, useState } from 'react'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
 import {
-  faArrowDownShortWide,
   faBackwardStep,
   faForwardStep,
   faPause,
   faPlay,
-  faRepeat,
   faSpinner,
   faUpRightAndDownLeftFromCenter,
   faXmark,
 } from '@fortawesome/free-solid-svg-icons'
 import {
-  cyclePlayMode,
   patchPlayerPlayback,
   playerClose,
   playerExpand,
@@ -24,8 +21,8 @@ import {
   registerPlayerAudioBridge,
   usePlayerSession,
   usePlayerPlayback,
-  usePlayMode,
 } from './playerStore'
+import { PlayModeToggle } from './PlayModeToggle'
 
 function formatClock(seconds: number) {
   if (!Number.isFinite(seconds) || seconds < 0) return '0:00'
@@ -42,7 +39,6 @@ function formatClock(seconds: number) {
 export function GlobalMiniPlayer() {
   const session = usePlayerSession()
   const playback = usePlayerPlayback()
-  const playMode = usePlayMode()
   const audioRef = useRef<HTMLAudioElement | null>(null)
   const progressFillRef = useRef<HTMLDivElement | null>(null)
   const timeLabelRef = useRef<HTMLSpanElement | null>(null)
@@ -229,28 +225,7 @@ export function GlobalMiniPlayer() {
               </button>
 
               <div className="flex shrink-0 items-center gap-1 sm:gap-2">
-                <button
-                  type="button"
-                  onClick={() => cyclePlayMode()}
-                  title={playMode === 'loop-one' ? '单曲循环' : '顺序播放'}
-                  className={`relative inline-flex h-9 w-9 items-center justify-center rounded-full transition-colors hover:bg-white/10 ${
-                    playMode === 'loop-one'
-                      ? 'text-[#ec4141]'
-                      : 'text-white/70 hover:text-white'
-                  }`}
-                  aria-label={playMode === 'loop-one' ? '单曲循环' : '顺序播放'}
-                >
-                  {playMode === 'loop-one' ? (
-                    <>
-                      <FontAwesomeIcon icon={faRepeat} className="h-3.5 w-3.5" />
-                      <span className="absolute bottom-1 right-1 text-[8px] font-semibold leading-none">
-                        1
-                      </span>
-                    </>
-                  ) : (
-                    <FontAwesomeIcon icon={faArrowDownShortWide} className="h-3.5 w-3.5" />
-                  )}
-                </button>
+                <PlayModeToggle size="sm" />
                 <button
                   type="button"
                   disabled={!session.hasPrev}

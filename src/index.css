@@ -184,6 +184,31 @@ body {
   }
 }
 
+@keyframes play-mode-pop {
+  0% {
+    transform: scale(0.88);
+    opacity: 0.6;
+  }
+  55% {
+    transform: scale(1.08);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+.play-mode-pop {
+  animation: play-mode-pop 0.28s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .play-mode-pop {
+    animation: none;
+  }
+}
+
 .playlist-fab-ring {
   background: conic-gradient(
     from 0deg,

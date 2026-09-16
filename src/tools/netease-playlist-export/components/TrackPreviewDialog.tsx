@@ -2,20 +2,18 @@ import { useRef, useState } from 'react'
 import { motion } from 'framer-motion'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
 import {
-  faArrowDownShortWide,
   faBackwardStep,
   faCircleCheck,
   faFolderOpen,
   faForwardStep,
   faPause,
   faPlay,
-  faRepeat,
   faSatelliteDish,
   faSpinner,
   faWindowMinimize,
   faXmark,
 } from '@fortawesome/free-solid-svg-icons'
-import { cyclePlayMode, useLocalAudio, usePlayMode, type AudioSnapshot } from '@/player'
+import { PlayModeToggle, useLocalAudio, type AudioSnapshot } from '@/player'
 import type { BiliDownloadedEntry } from '../api/bilibiliSniff'
 import type { NeteaseTrack } from '../types'
 
@@ -69,7 +67,6 @@ export function TrackPreviewDialog({
 }: TrackPreviewDialogProps) {
   const [seeking, setSeeking] = useState(false)
   const [seekValue, setSeekValue] = useState(0)
-  const playMode = usePlayMode()
   const { audioEl, playing, current, duration, toggle, seek, snapshot } = useLocalAudio(src, {
     resume,
     onEnded,
@@ -233,26 +230,7 @@ export function TrackPreviewDialog({
 
           {!previewLoading && (
             <div className="flex items-center justify-center gap-5 pb-1">
-              <button
-                type="button"
-                onClick={() => cyclePlayMode()}
-                title={playMode === 'loop-one' ? '单曲循环' : '顺序播放'}
-                className={`relative inline-flex h-10 w-10 items-center justify-center rounded-full transition-colors hover:bg-white/10 ${
-                  playMode === 'loop-one' ? 'text-white' : 'text-white/70 hover:text-white'
-                }`}
-                aria-label={playMode === 'loop-one' ? '单曲循环' : '顺序播放'}
-              >
-                {playMode === 'loop-one' ? (
-                  <>
-                    <FontAwesomeIcon icon={faRepeat} className="h-4 w-4" />
-                    <span className="absolute bottom-1.5 right-1.5 text-[9px] font-semibold leading-none">
-                      1
-                    </span>
-                  </>
-                ) : (
-                  <FontAwesomeIcon icon={faArrowDownShortWide} className="h-4 w-4" />
-                )}
-              </button>
+              <PlayModeToggle size="md" />
               <button
                 type="button"
                 disabled={!hasPrev}
