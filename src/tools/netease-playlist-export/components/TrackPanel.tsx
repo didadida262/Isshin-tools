@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { readFile } from '@tauri-apps/plugin-fs'
+import { useVirtualizer } from '@tanstack/react-virtual'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
 import {
   faFileExport,
@@ -25,6 +26,11 @@ import { useToast } from '@/components/Toast'
 import { useDebouncedValue } from '@/hooks/useDebouncedValue'
 import { useToolVisible } from '@/shell/ToolVisibility'
 import {
+  clearPlayerSession,
+  setPlayerSession,
+  usePlayerSource,
+} from '@/player'
+import {
   dismissTask,
   registerCancelHandler,
   TASK_IDS,
@@ -45,6 +51,10 @@ import {
 import type { ExportFormat, NeteasePlaylist, NeteaseTrack } from '../types'
 import { ResourceSniffDialog } from './ResourceSniffDialog'
 import { TrackPreviewDialog } from './TrackPreviewDialog'
+
+const TRACK_ROW_HEIGHT = 52
+const TRACK_GRID =
+  '3rem minmax(0, 1.6fr) minmax(0, 0.7fr) 3.5rem 7.25rem'
 
 interface TrackPanelProps {
   playlist: NeteasePlaylist | null
@@ -90,6 +100,7 @@ export function TrackPanel({
   const [lastPath, setLastPath] = useState<string | null>(null)
   const [sniffTrack, setSniffTrack] = useState<NeteaseTrack | null>(null)
   const [previewTrack, setPreviewTrack] = useState<NeteaseTrack | null>(null)
+  const [previewMinimized, setPreviewMinimized] = useState(false)
   const [previewSrc, setPreviewSrc] = useState<string | null>(null)
   const [previewLoading, setPreviewLoading] = useState(false)
   const [previewError, setPreviewError] = useState<string | null>(null)
@@ -103,7 +114,6 @@ export function TrackPanel({
   const exportBtnRef = useRef<HTMLDivElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
-  const rowRefs = useRef(new Map<number, HTMLTableRowElement>())
   const cancelBatchRef = useRef(false)
   const previewTrackRef = useRef<NeteaseTrack | null>(null)
   const filteredRef = useRef<NeteaseTrack[]>([])
@@ -136,12 +146,36 @@ export function TrackPanel({
   filteredRef.current = filtered
   previewTrackRef.current = previewTrack
 
+  const rowVirtualizer = useVirtualizer({
+    count: filtered.length,
+    getScrollElement: () => scrollRef.current,
+    estimateSize: () => TRACK_ROW_HEIGHT,
+    overscan: 12,
+    getItemKey: (index) => filtered[index]?.songId ?? index,
+  })
+  const virtualizerRef = useRef(rowVirtualizer)
+  virtualizerRef.current = rowVirtualizer
+
+  const scrollToSongId = useCallback((songId: number) => {
+    const index = filteredRef.current.findIndex((t) => t.songId === songId)
+    if (index < 0) return
+    virtualizerRef.current.scrollToIndex(index, { align: 'auto', behavior: 'smooth' })
+  }, [])
+
+  const playerSource = usePlayerSource()
+
   const previewIndex = previewTrack
     ? filtered.findIndex((t) => t.songId === previewTrack.songId)
     : -1
   const previewDownloaded = previewTrack
     ? bySongId.get(previewTrack.songId)
     : undefined
+
+  const closePreview = useCallback(() => {
+    setPreviewTrack(null)
+    setPreviewMinimized(false)
+    if (playerSource === 'netease') clearPlayerSession()
+  }, [playerSource])
 
   const downloadedCount = useMemo(() => {
     let n = 0
@@ -166,23 +200,8 @@ export function TrackPanel({
 
   useEffect(() => {
     if (batchSongId == null) return
-    const row = rowRefs.current.get(batchSongId)
-    const root = scrollRef.current
-    if (!row || !root) return
-    const rowTop = row.offsetTop
-    const rowBottom = rowTop + row.offsetHeight
-    const viewTop = root.scrollTop
-    const viewBottom = viewTop + root.clientHeight
-    const margin = 48
-    if (rowTop < viewTop + margin) {
-      root.scrollTo({ top: Math.max(0, rowTop - margin), behavior: 'smooth' })
-    } else if (rowBottom > viewBottom - margin) {
-      root.scrollTo({
-        top: rowBottom - root.clientHeight + margin,
-        behavior: 'smooth',
-      })
-    }
-  }, [batchSongId, sniffTrack])
+    scrollToSongId(batchSongId)
+  }, [batchSongId, sniffTrack, scrollToSongId])
 
   useEffect(() => {
     cancelBatchRef.current = true
@@ -192,6 +211,7 @@ export function TrackPanel({
     setBatchStatus(null)
     setSniffTrack(null)
     setPreviewTrack(null)
+    setPreviewMinimized(false)
     setMenuOpen(false)
     setDeletingSongId(null)
     appliedSeqKey.current = ''
@@ -259,23 +279,8 @@ export function TrackPanel({
   }, [previewTrack])
 
   const scrollPreviewIntoView = useCallback((songId: number) => {
-    const row = rowRefs.current.get(songId)
-    const root = scrollRef.current
-    if (!row || !root) return
-    const rowTop = row.offsetTop
-    const rowBottom = rowTop + row.offsetHeight
-    const viewTop = root.scrollTop
-    const viewBottom = viewTop + root.clientHeight
-    const margin = 48
-    if (rowTop < viewTop + margin) {
-      root.scrollTo({ top: Math.max(0, rowTop - margin), behavior: 'smooth' })
-    } else if (rowBottom > viewBottom - margin) {
-      root.scrollTo({
-        top: rowBottom - root.clientHeight + margin,
-        behavior: 'smooth',
-      })
-    }
-  }, [])
+    scrollToSongId(songId)
+  }, [scrollToSongId])
 
   const goPreviewOffset = useCallback(
     (delta: number, opts?: { preferDownloaded?: boolean }) => {
@@ -311,10 +316,68 @@ export function TrackPanel({
   )
 
   useEffect(() => {
+    if (!previewTrack) {
+      if (playerSource === 'netease') clearPlayerSession()
+      return
+    }
+    const list = filteredRef.current
+    const index = list.findIndex((t) => t.songId === previewTrack.songId)
+    setPlayerSession(
+      {
+        source: 'netease',
+        toolId: 'netease-playlist-export',
+        track: {
+          id: String(previewTrack.songId),
+          title: previewTrack.name || '未命名歌曲',
+          subtitle: previewTrack.artists || '未知歌手',
+          coverUrl: playlist?.coverImgUrl ?? null,
+          durationMs: previewTrack.durationMs,
+        },
+        src: previewSrc,
+        loading: previewLoading,
+        error: previewError,
+        minimized: previewMinimized,
+        hasPrev: index > 0,
+        hasNext: index >= 0 && index < list.length - 1,
+      },
+      {
+        onPrev: () => goPreviewOffset(-1),
+        onNext: () => goPreviewOffset(1),
+        onEnded: () => goPreviewOffset(1, { preferDownloaded: true }),
+        onExpand: () => setPreviewMinimized(false),
+        onClose: () => {
+          setPreviewTrack(null)
+          setPreviewMinimized(false)
+        },
+      },
+    )
+  }, [
+    previewTrack,
+    previewSrc,
+    previewLoading,
+    previewError,
+    previewMinimized,
+    playlist?.coverImgUrl,
+    playerSource,
+    goPreviewOffset,
+  ])
+
+  useEffect(() => {
+    if (playerSource && playerSource !== 'netease' && previewTrack) {
+      setPreviewTrack(null)
+      setPreviewMinimized(false)
+    }
+  }, [playerSource, previewTrack])
+
+  useEffect(() => {
     if (!previewTrack) return
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        setPreviewTrack(null)
+        if (previewMinimized) {
+          setPreviewMinimized(false)
+        } else {
+          closePreview()
+        }
         return
       }
       if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return
@@ -325,16 +388,16 @@ export function TrackPanel({
     }
     window.addEventListener('keydown', onKey)
     const prev = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
+    if (!previewMinimized) document.body.style.overflow = 'hidden'
     return () => {
       window.removeEventListener('keydown', onKey)
       document.body.style.overflow = prev
     }
-  }, [previewTrack, goPreviewOffset])
+  }, [previewTrack, previewMinimized, goPreviewOffset, closePreview])
 
   useEffect(() => {
-    if (batchActive && previewTrack) setPreviewTrack(null)
-  }, [batchActive, previewTrack])
+    if (batchActive && previewTrack) closePreview()
+  }, [batchActive, previewTrack, closePreview])
 
   useEffect(() => {
     if (!batchActive && !batchStatus) {
@@ -585,7 +648,9 @@ export function TrackPanel({
     try {
       await deleteDownloaded(track.songId)
       if (lastPath === entry.path) setLastPath(null)
-      if (previewTrackRef.current?.songId === track.songId) setPreviewTrack(null)
+      if (previewTrackRef.current?.songId === track.songId) {
+        closePreview()
+      }
       toast(`已删除本地文件 · ${track.name}`, 'success')
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e)
@@ -598,6 +663,7 @@ export function TrackPanel({
   const openPreview = useCallback(
     (track: NeteaseTrack) => {
       if (batchActive) return
+      setPreviewMinimized(false)
       setPreviewTrack(track)
     },
     [batchActive],
@@ -797,52 +863,52 @@ export function TrackPanel({
           <p className="px-4 py-10 text-center text-xs text-muted">没有匹配的歌曲</p>
         )}
         {playlist && !loading && !error && filtered.length > 0 && (
-          <table className="w-full table-fixed text-left text-xs">
-            <colgroup>
-              <col style={{ width: '3rem' }} />
-              <col style={{ width: '46%' }} />
-              <col style={{ width: '18%' }} />
-              <col style={{ width: '3.5rem' }} />
-              <col style={{ width: '7.25rem' }} />
-            </colgroup>
-            <thead className="sticky top-0 z-10 bg-surface/95 backdrop-blur-sm">
-              <tr className="border-b border-border-subtle text-[10px] uppercase tracking-wider text-subtle">
-                <th className="px-3 py-2 font-medium">#</th>
-                <th className="px-2 py-2 font-medium">歌曲</th>
-                <th className="truncate px-2 py-2 font-medium">专辑</th>
-                <th className="px-3 py-2 text-right font-medium">时长</th>
-                <th className="px-2 py-2 text-center font-medium">嗅探</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map((track, index) => {
+          <div className="min-w-0">
+            <div
+              role="row"
+              className="sticky top-0 z-10 grid items-center border-b border-border-subtle bg-surface/95 px-0 text-[10px] uppercase tracking-wider text-subtle backdrop-blur-sm"
+              style={{ gridTemplateColumns: TRACK_GRID }}
+            >
+              <div className="px-3 py-2 font-medium">#</div>
+              <div className="px-2 py-2 font-medium">歌曲</div>
+              <div className="truncate px-2 py-2 font-medium">专辑</div>
+              <div className="px-3 py-2 text-right font-medium">时长</div>
+              <div className="px-2 py-2 text-center font-medium">嗅探</div>
+            </div>
+            <div
+              role="rowgroup"
+              className="relative w-full"
+              style={{ height: rowVirtualizer.getTotalSize() }}
+            >
+              {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+                const track = filtered[virtualRow.index]
+                if (!track) return null
                 const downloaded = bySongId.get(track.songId)
                 const isBatchTarget = batchSongId === track.songId
                 const isPreviewing = previewTrack?.songId === track.songId
                 return (
-                  <motion.tr
+                  <div
                     key={track.songId}
-                    ref={(el) => {
-                      if (el) rowRefs.current.set(track.songId, el)
-                      else rowRefs.current.delete(track.songId)
-                    }}
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    transition={{ delay: Math.min(index * 0.008, 0.15) }}
+                    role="row"
                     onClick={() => openPreview(track)}
-                    className={`cursor-pointer border-b border-border-subtle/60 transition-colors duration-200 ${
+                    className={`absolute top-0 left-0 grid w-full cursor-pointer items-center border-b border-border-subtle/60 transition-colors duration-150 ${
                       isPreviewing || isBatchTarget
                         ? 'bg-surface-hover/70'
                         : 'hover:bg-surface-hover/50'
                     }`}
+                    style={{
+                      height: virtualRow.size,
+                      transform: `translateY(${virtualRow.start}px)`,
+                      gridTemplateColumns: TRACK_GRID,
+                    }}
                   >
-                    <td className="px-3 py-2.5 tabular-nums text-subtle">
-                      {seqBySongId.get(track.songId) ?? index + 1}
-                    </td>
-                    <td className="min-w-0 overflow-hidden px-2 py-2.5">
+                    <div className="px-3 py-2.5 text-xs tabular-nums text-subtle">
+                      {seqBySongId.get(track.songId) ?? virtualRow.index + 1}
+                    </div>
+                    <div className="min-w-0 overflow-hidden px-2 py-2.5">
                       <div className="flex min-w-0 items-start gap-1.5">
                         <div className="min-w-0 flex-1 overflow-hidden">
-                          <p className="truncate font-medium text-foreground" title={track.name}>
+                          <p className="truncate text-xs font-medium text-foreground" title={track.name}>
                             {track.name}
                           </p>
                           <p
@@ -862,17 +928,17 @@ export function TrackPanel({
                           </span>
                         )}
                       </div>
-                    </td>
-                    <td
-                      className="min-w-0 overflow-hidden truncate px-2 py-2.5 text-muted"
+                    </div>
+                    <div
+                      className="min-w-0 overflow-hidden truncate px-2 py-2.5 text-xs text-muted"
                       title={track.album || undefined}
                     >
                       {track.album || '—'}
-                    </td>
-                    <td className="px-3 py-2.5 text-right tabular-nums text-subtle">
+                    </div>
+                    <div className="px-3 py-2.5 text-right text-xs tabular-nums text-subtle">
                       {formatDuration(track.durationMs)}
-                    </td>
-                    <td className="px-2 py-2.5" onClick={(e) => e.stopPropagation()}>
+                    </div>
+                    <div className="px-2 py-2.5" onClick={(e) => e.stopPropagation()}>
                       <div className="flex items-center justify-center gap-0.5">
                         <button
                           type="button"
@@ -920,12 +986,12 @@ export function TrackPanel({
                           </>
                         )}
                       </div>
-                    </td>
-                  </motion.tr>
+                    </div>
+                  </div>
                 )
               })}
-            </tbody>
-          </table>
+            </div>
+          </div>
         )}
       </div>
 
@@ -943,9 +1009,10 @@ export function TrackPanel({
       {typeof document !== 'undefined' &&
         toolVisible &&
         createPortal(
-          <AnimatePresence>
-            {previewTrack && (
+          <AnimatePresence mode="sync">
+            {previewTrack && !previewMinimized && (
               <motion.div
+                key="preview-overlay"
                 className="fixed inset-0 z-50 flex items-center justify-center p-4"
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
@@ -955,29 +1022,28 @@ export function TrackPanel({
                 <button
                   type="button"
                   aria-label="关闭"
-                  className="absolute inset-0 bg-black/60 backdrop-blur-[2px]"
-                  onClick={() => setPreviewTrack(null)}
+                  className="absolute inset-0 bg-black/55"
+                  onClick={closePreview}
                 />
                 <TrackPreviewDialog
                   track={previewTrack}
                   coverUrl={playlist?.coverImgUrl}
-                  previewSrc={previewSrc}
                   previewLoading={previewLoading}
                   previewError={previewError}
                   downloaded={previewDownloaded}
                   canReveal={!!previewDownloaded?.path}
                   hasPrev={previewIndex > 0}
                   hasNext={previewIndex >= 0 && previewIndex < filtered.length - 1}
-                  onClose={() => setPreviewTrack(null)}
+                  onMinimize={() => setPreviewMinimized(true)}
+                  onClose={closePreview}
                   onPrev={() => goPreviewOffset(-1)}
                   onNext={() => goPreviewOffset(1)}
-                  onAutoNext={() => goPreviewOffset(1, { preferDownloaded: true })}
                   onReveal={() => {
                     if (previewDownloaded?.path) void revealExport(previewDownloaded.path)
                   }}
                   onSniff={() => {
                     setSniffTrack(previewTrack)
-                    setPreviewTrack(null)
+                    closePreview()
                   }}
                 />
               </motion.div>

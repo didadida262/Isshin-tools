@@ -154,3 +154,20 @@ body {
 .music-disc-spin {
   animation: music-disc-spin 14s linear infinite;
 }
+
+@keyframes mini-player-in {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 64px, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+/* Skip off-screen row work when the track panel scrolls. */
+.track-row {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 52px;
+}

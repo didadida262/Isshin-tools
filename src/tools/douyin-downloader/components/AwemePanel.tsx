@@ -19,6 +19,11 @@ import {
 import { ErrorState } from '@/components/ErrorState'
 import { useToast } from '@/components/Toast'
 import { useToolVisible } from '@/shell/ToolVisibility'
+import {
+  clearPlayerSession,
+  setPlayerSession,
+  usePlayerSource,
+} from '@/player'
 import { TASK_IDS, upsertTask } from '@/tasks'
 import { cachePreview, downloadAweme, unlikeAweme, applyAwemeSeq } from '../api/douyinApi'
 import { useBatchDownload } from '../hooks/useBatchDownload'
@@ -86,7 +91,9 @@ export function AwemePanel({
 }: AwemePanelProps) {
   const { toast } = useToast()
   const toolVisible = useToolVisible()
+  const playerSource = usePlayerSource()
   const [selected, setSelected] = useState<DouyinAweme | null>(null)
+  const [previewMinimized, setPreviewMinimized] = useState(false)
   const [downloadingId, setDownloadingId] = useState<string | null>(null)
   const [unlikingId, setUnlikingId] = useState<string | null>(null)
   const [lastPath, setLastPath] = useState<string | null>(null)
@@ -361,11 +368,77 @@ export function AwemePanel({
     [scrollToIndex],
   )
 
+  const closeMusicPreview = useCallback(() => {
+    setSelected(null)
+    setPreviewMinimized(false)
+    if (playerSource === 'douyin') clearPlayerSession()
+  }, [playerSource])
+
+  useEffect(() => {
+    if (!isMusicKind(kind)) return
+    if (!selected) {
+      if (playerSource === 'douyin') clearPlayerSession()
+      return
+    }
+    const index = items.findIndex((item) => item.awemeId === selected.awemeId)
+    setPlayerSession(
+      {
+        source: 'douyin',
+        toolId: 'douyin-downloader',
+        track: {
+          id: selected.awemeId,
+          title: selected.desc || '未命名原声',
+          subtitle: selected.authorName || '未知作者',
+          coverUrl: selected.coverUrl ?? null,
+          durationMs: selected.durationMs,
+        },
+        src: previewSrc,
+        loading: previewLoading,
+        error: previewError,
+        minimized: previewMinimized,
+        hasPrev: index > 0,
+        hasNext: index >= 0 && index < items.length - 1,
+      },
+      {
+        onPrev: () => goPreviewOffset(-1),
+        onNext: () => goPreviewOffset(1),
+        onExpand: () => setPreviewMinimized(false),
+        onClose: () => {
+          setSelected(null)
+          setPreviewMinimized(false)
+        },
+      },
+    )
+  }, [
+    kind,
+    selected,
+    previewSrc,
+    previewLoading,
+    previewError,
+    previewMinimized,
+    items,
+    playerSource,
+    goPreviewOffset,
+  ])
+
+  useEffect(() => {
+    if (playerSource && playerSource !== 'douyin' && selected && isMusicKind(kind)) {
+      setSelected(null)
+      setPreviewMinimized(false)
+    }
+  }, [playerSource, selected, kind])
+
   useEffect(() => {
     if (!selected) return
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        setSelected(null)
+        if (isMusicKind(kind) && previewMinimized) {
+          setPreviewMinimized(false)
+        } else if (isMusicKind(kind)) {
+          closeMusicPreview()
+        } else {
+          setSelected(null)
+        }
         return
       }
       if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return
@@ -376,12 +449,14 @@ export function AwemePanel({
     }
     window.addEventListener('keydown', onKey)
     const prev = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
+    if (!(isMusicKind(kind) && previewMinimized)) {
+      document.body.style.overflow = 'hidden'
+    }
     return () => {
       window.removeEventListener('keydown', onKey)
       document.body.style.overflow = prev
     }
-  }, [selected, goPreviewOffset])
+  }, [selected, goPreviewOffset, kind, previewMinimized, closeMusicPreview])
 
   const handleDownload = useCallback(
     async (item: DouyinAweme) => {
@@ -509,8 +584,11 @@ export function AwemePanel({
   }, [followPhase, followLoadMoreUsed, items.length, scrollToIndex])
 
   useEffect(() => {
-    if (anyBatchActive && selected) setSelected(null)
-  }, [anyBatchActive, selected])
+    if (anyBatchActive && selected) {
+      if (isMusicKind(kind)) closeMusicPreview()
+      else setSelected(null)
+    }
+  }, [anyBatchActive, selected, kind, closeMusicPreview])
 
   useEffect(() => {
     const root = scrollRef.current
@@ -879,7 +957,7 @@ export function AwemePanel({
         toolVisible &&
         createPortal(
           <AnimatePresence>
-            {selected && (
+            {selected && !(isMusicKind(kind) && previewMinimized) && (
               <motion.div
                 className="fixed inset-0 z-50 flex items-center justify-center p-4"
                 initial={{ opacity: 0 }}
@@ -890,13 +968,14 @@ export function AwemePanel({
                 <button
                   type="button"
                   aria-label="关闭"
-                  className="absolute inset-0 bg-black/60 backdrop-blur-[2px]"
-                  onClick={() => setSelected(null)}
+                  className="absolute inset-0 bg-black/55"
+                  onClick={() =>
+                    isMusicKind(kind) ? closeMusicPreview() : setSelected(null)
+                  }
                 />
                 {isMusicKind(kind) ? (
                   <MusicPreviewDialog
                     item={selected}
-                    previewSrc={previewSrc}
                     previewLoading={previewLoading}
                     previewError={previewError}
                     downloaded={selectedDownloaded}
@@ -905,7 +984,8 @@ export function AwemePanel({
                     canReveal={!!(lastPath || selectedDownloaded?.path)}
                     hasPrev={selectedIndex > 0}
                     hasNext={selectedIndex >= 0 && selectedIndex < items.length - 1}
-                    onClose={() => setSelected(null)}
+                    onMinimize={() => setPreviewMinimized(true)}
+                    onClose={closeMusicPreview}
                     onPrev={() => goPreviewOffset(-1)}
                     onNext={() => goPreviewOffset(1)}
                     onDownload={() => void handleDownload(selected)}

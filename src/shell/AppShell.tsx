@@ -1,7 +1,8 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Sidebar } from './Sidebar'
 import { ToolVisibilityProvider } from './ToolVisibility'
 import { defaultToolId, toolsRegistry } from './toolsRegistry'
+import { GlobalMiniPlayer, registerPlayerNavigate } from '@/player'
 
 export function AppShell() {
   const [activeToolId, setActiveToolId] = useState<string | null>(defaultToolId)
@@ -18,6 +19,11 @@ export function AppShell() {
     })
     setActiveToolId(toolId)
   }, [])
+
+  useEffect(() => {
+    registerPlayerNavigate(selectTool)
+    return () => registerPlayerNavigate(null)
+  }, [selectTool])
 
   const mountedTools = useMemo(
     () => toolsRegistry.filter((tool) => mountedIds.has(tool.id)),
@@ -58,6 +64,7 @@ export function AppShell() {
             )
           })
         )}
+        <GlobalMiniPlayer />
       </main>
     </div>
   )

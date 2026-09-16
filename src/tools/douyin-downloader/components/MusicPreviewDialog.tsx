@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useState } from 'react'
 import { motion } from 'framer-motion'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
 import {
@@ -10,8 +10,10 @@ import {
   faPause,
   faPlay,
   faSpinner,
+  faWindowMinimize,
   faXmark,
 } from '@fortawesome/free-solid-svg-icons'
+import { playerSeek, playerToggle, usePlayerPlayback } from '@/player'
 import type { DouyinAweme, DouyinDownloadedEntry } from '../types'
 
 function formatClock(seconds: number) {
@@ -24,13 +26,13 @@ function formatClock(seconds: number) {
 
 export interface MusicPreviewDialogProps {
   item: DouyinAweme
-  previewSrc: string | null
   previewLoading: boolean
   previewError: string | null
   downloaded: DouyinDownloadedEntry | undefined
   downloading: boolean
   controlsLocked: boolean
   canReveal: boolean
+  onMinimize: () => void
   onClose: () => void
   onDownload: () => void
   onReveal: () => void
@@ -40,15 +42,16 @@ export interface MusicPreviewDialogProps {
   hasNext: boolean
 }
 
+/** Full music modal — audio hosted by GlobalMiniPlayer. */
 export function MusicPreviewDialog({
   item,
-  previewSrc,
   previewLoading,
   previewError,
   downloaded,
   downloading,
   controlsLocked,
   canReveal,
+  onMinimize,
   onClose,
   onDownload,
   onReveal,
@@ -57,32 +60,19 @@ export function MusicPreviewDialog({
   hasPrev,
   hasNext,
 }: MusicPreviewDialogProps) {
-  const audioRef = useRef<HTMLAudioElement | null>(null)
-  const [playing, setPlaying] = useState(false)
-  const [current, setCurrent] = useState(0)
-  const [duration, setDuration] = useState(
-    item.durationMs > 0 ? item.durationMs / 1000 : 0,
-  )
+  const playback = usePlayerPlayback()
   const [seeking, setSeeking] = useState(false)
+  const [seekValue, setSeekValue] = useState(0)
 
-  useEffect(() => {
-    setCurrent(0)
-    setPlaying(false)
-    setDuration(item.durationMs > 0 ? item.durationMs / 1000 : 0)
-  }, [item.awemeId, item.durationMs, previewSrc])
-
-  const togglePlay = useCallback(() => {
-    const audio = audioRef.current
-    if (!audio) return
-    if (audio.paused) {
-      void audio.play().then(() => setPlaying(true)).catch(() => setPlaying(false))
-    } else {
-      audio.pause()
-      setPlaying(false)
-    }
-  }, [])
-
+  const current = seeking ? seekValue : playback.current
+  const duration =
+    playback.duration > 0
+      ? playback.duration
+      : item.durationMs > 0
+        ? item.durationMs / 1000
+        : 0
   const progress = duration > 0 ? Math.min(1, current / duration) : 0
+  const canControl = !previewLoading && !previewError
 
   return (
     <motion.div
@@ -95,7 +85,6 @@ export function MusicPreviewDialog({
       transition={{ duration: 0.22, ease: 'easeOut' }}
       className="relative z-10 flex h-[min(82vh,560px)] w-full max-w-lg flex-col overflow-hidden rounded-3xl border border-white/10 bg-[#0c0d10] shadow-2xl shadow-black/50"
     >
-      {/* Atmospheric cover — soft, not a hero photo */}
       <div className="pointer-events-none absolute inset-0 overflow-hidden">
         {item.coverUrl ? (
           <>
@@ -117,23 +106,33 @@ export function MusicPreviewDialog({
         <p className="text-[10px] font-medium uppercase tracking-[0.22em] text-white/45">
           Now Playing
         </p>
-        <button
-          type="button"
-          onClick={onClose}
-          className="inline-flex h-8 w-8 items-center justify-center rounded-full text-white/50 transition-colors hover:bg-white/10 hover:text-white"
-          aria-label="关闭"
-        >
-          <FontAwesomeIcon icon={faXmark} className="h-3.5 w-3.5" />
-        </button>
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            onClick={onMinimize}
+            className="inline-flex h-8 w-8 items-center justify-center rounded-full text-white/50 transition-colors hover:bg-white/10 hover:text-white"
+            aria-label="最小化到播放栏"
+            title="最小化"
+          >
+            <FontAwesomeIcon icon={faWindowMinimize} className="h-3 w-3 -translate-y-0.5" />
+          </button>
+          <button
+            type="button"
+            onClick={onClose}
+            className="inline-flex h-8 w-8 items-center justify-center rounded-full text-white/50 transition-colors hover:bg-white/10 hover:text-white"
+            aria-label="关闭"
+          >
+            <FontAwesomeIcon icon={faXmark} className="h-3.5 w-3.5" />
+          </button>
+        </div>
       </div>
 
       <div className="relative z-10 flex min-h-0 flex-1 flex-col px-6 pb-2 pt-3">
-        {/* Compact spinning disc + meta */}
         <div className="flex items-center gap-4">
           <div className="relative shrink-0">
             <div
-              className={`relative h-[4.5rem] w-[4.5rem] rounded-full border border-white/15 bg-black/40 p-[3px] shadow-[0_0_40px_rgba(0,0,0,0.45)] ${
-                playing ? 'music-disc-spin' : ''
+              className={`relative h-18 w-18 rounded-full border border-white/15 bg-black/40 p-0.75 shadow-[0_0_40px_rgba(0,0,0,0.45)] ${
+                playback.playing ? 'music-disc-spin' : ''
               }`}
             >
               {item.coverUrl ? (
@@ -148,7 +147,7 @@ export function MusicPreviewDialog({
               )}
               <span className="absolute left-1/2 top-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full border border-white/30 bg-[#0c0d10]" />
             </div>
-            {playing && (
+            {playback.playing && (
               <span className="absolute -inset-1 rounded-full border border-white/10 opacity-60" />
             )}
           </div>
@@ -164,7 +163,7 @@ export function MusicPreviewDialog({
               {item.authorName || '未知作者'}
             </p>
             <p className="mt-2 text-[10px] tracking-wide text-white/35">
-              ↑↓ 切换曲目 · Esc 关闭
+              ↑↓ 切换曲目 · Esc 关闭 · 可最小化到底栏（切换工具继续播）
             </p>
           </div>
         </div>
@@ -180,29 +179,8 @@ export function MusicPreviewDialog({
             <p className="px-2 py-6 text-center text-xs text-danger">{previewError}</p>
           )}
 
-          {!previewLoading && !previewError && previewSrc ? (
+          {canControl && (
             <>
-              <audio
-                ref={audioRef}
-                key={previewSrc}
-                src={previewSrc}
-                autoPlay
-                onPlay={() => setPlaying(true)}
-                onPause={() => setPlaying(false)}
-                onEnded={() => {
-                  setPlaying(false)
-                  if (hasNext) onNext()
-                }}
-                onLoadedMetadata={(e) => {
-                  const d = e.currentTarget.duration
-                  if (Number.isFinite(d) && d > 0) setDuration(d)
-                }}
-                onTimeUpdate={(e) => {
-                  if (!seeking) setCurrent(e.currentTarget.currentTime)
-                }}
-                className="hidden"
-              />
-
               <div className="space-y-2">
                 <input
                   type="range"
@@ -210,17 +188,21 @@ export function MusicPreviewDialog({
                   max={duration || 1}
                   step={0.05}
                   value={Math.min(current, duration || 0)}
-                  onMouseDown={() => setSeeking(true)}
-                  onTouchStart={() => setSeeking(true)}
-                  onChange={(e) => setCurrent(Number(e.target.value))}
+                  onMouseDown={() => {
+                    setSeeking(true)
+                    setSeekValue(playback.current)
+                  }}
+                  onTouchStart={() => {
+                    setSeeking(true)
+                    setSeekValue(playback.current)
+                  }}
+                  onChange={(e) => setSeekValue(Number(e.target.value))}
                   onMouseUp={(e) => {
-                    const t = Number((e.target as HTMLInputElement).value)
-                    if (audioRef.current) audioRef.current.currentTime = t
+                    playerSeek(Number((e.target as HTMLInputElement).value))
                     setSeeking(false)
                   }}
                   onTouchEnd={(e) => {
-                    const t = Number((e.target as HTMLInputElement).value)
-                    if (audioRef.current) audioRef.current.currentTime = t
+                    playerSeek(Number((e.target as HTMLInputElement).value))
                     setSeeking(false)
                   }}
                   className="music-seek h-1.5 w-full cursor-pointer appearance-none rounded-full bg-white/15"
@@ -248,13 +230,13 @@ export function MusicPreviewDialog({
                 </button>
                 <button
                   type="button"
-                  onClick={togglePlay}
+                  onClick={() => playerToggle()}
                   className="inline-flex h-14 w-14 items-center justify-center rounded-full bg-white text-[#0c0d10] shadow-[0_8px_30px_rgba(255,255,255,0.18)] transition-transform hover:scale-[1.04] active:scale-[0.98]"
-                  aria-label={playing ? '暂停' : '播放'}
+                  aria-label={playback.playing ? '暂停' : '播放'}
                 >
                   <FontAwesomeIcon
-                    icon={playing ? faPause : faPlay}
-                    className={`h-5 w-5 ${playing ? '' : 'translate-x-0.5'}`}
+                    icon={playback.playing ? faPause : faPlay}
+                    className={`h-5 w-5 ${playback.playing ? '' : 'translate-x-0.5'}`}
                   />
                 </button>
                 <button
@@ -269,7 +251,7 @@ export function MusicPreviewDialog({
                 </button>
               </div>
             </>
-          ) : null}
+          )}
         </div>
       </div>
 
@@ -300,7 +282,7 @@ export function MusicPreviewDialog({
             type="button"
             disabled={!!downloaded || controlsLocked}
             onClick={onDownload}
-            className={`inline-flex h-8 min-w-[5.25rem] items-center justify-center gap-1.5 rounded-full px-3 text-[11px] transition-all ${
+            className={`inline-flex h-8 min-w-21 items-center justify-center gap-1.5 rounded-full px-3 text-[11px] transition-all ${
               downloaded
                 ? 'cursor-default bg-success/20 text-success'
                 : downloading
@@ -309,9 +291,7 @@ export function MusicPreviewDialog({
             }`}
           >
             <FontAwesomeIcon
-              icon={
-                downloaded ? faCircleCheck : downloading ? faSpinner : faDownload
-              }
+              icon={downloaded ? faCircleCheck : downloading ? faSpinner : faDownload}
               className={`h-3 w-3 ${downloading ? 'animate-spin' : ''}`}
             />
             {downloaded ? '已下载' : downloading ? '下载中' : '下载'}
