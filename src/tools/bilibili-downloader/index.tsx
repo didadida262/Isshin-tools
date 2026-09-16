@@ -97,22 +97,22 @@ export function BilibiliDownloaderTool() {
       </header>
 
       <form onSubmit={(e) => void handleSearch(e)} className="shrink-0">
-        <div className="flex items-stretch gap-3">
+        <div className="flex items-center gap-2">
           <input
             value={keyword}
             onChange={(e) => setKeyword(e.target.value)}
             placeholder="输入关键词，搜索 B 站相关视频…"
             aria-label="搜索关键词"
-            className="h-14 min-w-0 flex-1 rounded-2xl border border-border bg-background px-5 text-base text-foreground outline-none transition-colors placeholder:text-subtle focus:border-muted"
+            className="h-8 min-w-0 flex-1 rounded-xl border border-border bg-background px-3 text-xs text-foreground outline-none transition-colors placeholder:text-subtle focus:border-muted"
           />
           <button
             type="submit"
             disabled={!keyword.trim() || searching}
-            className="inline-flex h-14 shrink-0 items-center gap-2 rounded-2xl border border-border bg-surface px-5 text-sm font-medium text-foreground transition-colors hover:border-muted hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-40"
+            className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-xl border border-border bg-surface px-3 text-[11px] font-medium text-foreground transition-colors hover:border-muted hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-40"
           >
             <FontAwesomeIcon
               icon={searching ? faSpinner : faSatelliteDish}
-              className={`h-4 w-4 ${searching ? 'animate-spin' : ''}`}
+              className={`h-3 w-3 ${searching ? 'animate-spin' : ''}`}
             />
             嗅探
           </button>

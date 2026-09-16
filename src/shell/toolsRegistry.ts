@@ -7,6 +7,7 @@ import {
   faCar,
   faMusic,
   faDownload,
+  faPalette,
 } from '@fortawesome/free-solid-svg-icons'
 import { NeteasePlaylistExportTool } from '@/tools/netease-playlist-export'
 import { GoldFactorsTool } from '@/tools/gold-factors'
@@ -14,6 +15,7 @@ import { DouyinDownloaderTool } from '@/tools/douyin-downloader'
 import { BilibiliDownloaderTool } from '@/tools/bilibili-downloader'
 import { DroneTrainingTool } from '@/tools/drone-training'
 import { RcCarTrainingTool } from '@/tools/rc-car-training'
+import { HanddrawStyleTool } from '@/tools/handdraw-style'
 
 export interface ToolDefinition {
   id: string
@@ -65,6 +67,13 @@ export const toolsRegistry: ToolDefinition[] = [
     description: '树莓派无线遥控 · 从原理到动手',
     icon: faCar,
     component: RcCarTrainingTool,
+  },
+  {
+    id: 'handdraw-style',
+    name: '手绘风格提示词',
+    description: '编号 + 主题，生成中英生图提示词',
+    icon: faPalette,
+    component: HanddrawStyleTool,
   },
 ]
 
