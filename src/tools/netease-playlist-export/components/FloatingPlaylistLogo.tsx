@@ -2,8 +2,8 @@ import { useCallback, useRef, useState } from 'react'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
 import { faListUl } from '@fortawesome/free-solid-svg-icons'
 
-const FAB_SIZE = 36
-const EDGE_PAD = 10
+const FAB_SIZE = 44
+const EDGE_PAD = 12
 const CLICK_SLOP = 4
 
 interface FloatingPlaylistLogoProps {
@@ -12,8 +12,8 @@ interface FloatingPlaylistLogoProps {
 }
 
 /**
- * Zero-layout floating handle. Visibility is CSS-only; drag writes translate
- * on the inner button (no React re-renders per frame).
+ * Draggable floating handle to re-open the playlist panel.
+ * Enter/exit is CSS-only; drag writes translate on the button (no per-frame React).
  */
 export function FloatingPlaylistLogo({ visible, onExpand }: FloatingPlaylistLogoProps) {
   const btnRef = useRef<HTMLButtonElement | null>(null)
@@ -106,7 +106,7 @@ export function FloatingPlaylistLogo({ visible, onExpand }: FloatingPlaylistLogo
         transform: visible ? 'scale(1)' : 'scale(0.55)',
         pointerEvents: visible ? 'auto' : 'none',
         transition:
-          'opacity 0.18s ease, transform 0.2s cubic-bezier(0.22, 1, 0.36, 1)',
+          'opacity 0.2s ease, transform 0.28s cubic-bezier(0.22, 1, 0.36, 1)',
       }}
       aria-hidden={!visible}
     >
@@ -120,14 +120,39 @@ export function FloatingPlaylistLogo({ visible, onExpand }: FloatingPlaylistLogo
         onPointerMove={onPointerMove}
         onPointerUp={endPointer}
         onPointerCancel={endPointer}
-        className="flex touch-none items-center justify-center rounded-xl border border-border bg-surface/90 text-muted shadow-md ring-1 ring-border/50 backdrop-blur-md will-change-transform hover:bg-surface-hover hover:text-foreground active:cursor-grabbing"
+        className="playlist-fab group relative flex touch-none items-center justify-center active:cursor-grabbing"
         style={{
           width: FAB_SIZE,
           height: FAB_SIZE,
           cursor: 'grab',
         }}
       >
-        <FontAwesomeIcon icon={faListUl} className="h-3.5 w-3.5" />
+        {/* Soft ambient glow */}
+        <span
+          aria-hidden
+          className="playlist-fab-glow pointer-events-none absolute -inset-2 rounded-full opacity-70"
+        />
+        {/* Rotating conic ring */}
+        <span
+          aria-hidden
+          className="playlist-fab-ring pointer-events-none absolute inset-0 rounded-full"
+        />
+        {/* Glass disc */}
+        <span
+          aria-hidden
+          className="pointer-events-none absolute inset-[3px] rounded-full bg-[#14161c]/92 shadow-[inset_0_1px_0_rgba(255,255,255,0.12)] ring-1 ring-white/10 backdrop-blur-md transition-transform duration-200 group-hover:scale-[1.04] group-active:scale-[0.96]"
+        />
+        {/* Specular highlight */}
+        <span
+          aria-hidden
+          className="pointer-events-none absolute inset-[3px] overflow-hidden rounded-full"
+        >
+          <span className="absolute -top-3 left-1/2 h-8 w-10 -translate-x-1/2 rounded-full bg-white/15 blur-md" />
+        </span>
+        <FontAwesomeIcon
+          icon={faListUl}
+          className="relative z-10 h-3.5 w-3.5 text-white/85 drop-shadow-[0_0_6px_rgba(236,65,65,0.45)] transition-colors duration-200 group-hover:text-white"
+        />
       </button>
     </div>
   )

@@ -133,7 +133,7 @@ export const AwemeRow = memo(function AwemeRow({
             >
               <FontAwesomeIcon
                 icon={busyUnlike ? faSpinner : faHeart}
-                className={`h-3 w-3 ${busyUnlike ? 'animate-spin' : ''}`}
+                className={`!h-3 !w-3 ${busyUnlike ? 'animate-spin' : ''}`}
               />
               {busyUnlike ? '取消中' : '取消喜欢'}
             </button>
@@ -144,7 +144,7 @@ export const AwemeRow = memo(function AwemeRow({
                 className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap px-1.5 text-[11px] text-success"
                 title={downloaded.path}
               >
-                <FontAwesomeIcon icon={faCircleCheck} className="h-3 w-3" />
+                <FontAwesomeIcon icon={faCircleCheck} className="!h-3 !w-3" />
                 已下载
               </span>
               <button
@@ -153,11 +153,11 @@ export const AwemeRow = memo(function AwemeRow({
                   e.stopPropagation()
                   onReveal(downloaded)
                 }}
-                className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-muted transition-colors hover:bg-background hover:text-foreground"
+                className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted transition-colors hover:bg-background hover:text-foreground"
                 title="打开文件位置"
                 aria-label="打开文件位置"
               >
-                <FontAwesomeIcon icon={faFolderOpen} className="h-3 w-3" />
+                <FontAwesomeIcon icon={faFolderOpen} className="!h-3 !w-3" />
               </button>
             </>
           ) : (
@@ -167,7 +167,7 @@ export const AwemeRow = memo(function AwemeRow({
                   className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap px-1.5 text-[11px] text-danger/80"
                   title={skipped}
                 >
-                  <FontAwesomeIcon icon={faTriangleExclamation} className="h-3 w-3" />
+                  <FontAwesomeIcon icon={faTriangleExclamation} className="!h-3 !w-3" />
                   已跳过
                 </span>
               )}
@@ -185,7 +185,7 @@ export const AwemeRow = memo(function AwemeRow({
               >
                 <FontAwesomeIcon
                   icon={busyDownload ? faSpinner : faSatelliteDish}
-                  className={`h-3 w-3 ${busyDownload ? 'animate-spin' : ''}`}
+                  className={`!h-3 !w-3 ${busyDownload ? 'animate-spin' : ''}`}
                 />
                 {busyDownload ? '下载中' : skipped ? '重试' : '下载'}
               </button>

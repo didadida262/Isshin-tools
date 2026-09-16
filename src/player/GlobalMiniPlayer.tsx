@@ -1,15 +1,18 @@
 import { useEffect, useRef, useState } from 'react'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
 import {
+  faArrowDownShortWide,
   faBackwardStep,
   faForwardStep,
   faPause,
   faPlay,
+  faRepeat,
   faSpinner,
   faUpRightAndDownLeftFromCenter,
   faXmark,
 } from '@fortawesome/free-solid-svg-icons'
 import {
+  cyclePlayMode,
   patchPlayerPlayback,
   playerClose,
   playerExpand,
@@ -21,6 +24,7 @@ import {
   registerPlayerAudioBridge,
   usePlayerSession,
   usePlayerPlayback,
+  usePlayMode,
 } from './playerStore'
 
 function formatClock(seconds: number) {
@@ -38,6 +42,7 @@ function formatClock(seconds: number) {
 export function GlobalMiniPlayer() {
   const session = usePlayerSession()
   const playback = usePlayerPlayback()
+  const playMode = usePlayMode()
   const audioRef = useRef<HTMLAudioElement | null>(null)
   const progressFillRef = useRef<HTMLDivElement | null>(null)
   const timeLabelRef = useRef<HTMLSpanElement | null>(null)
@@ -68,6 +73,14 @@ export function GlobalMiniPlayer() {
         patchPlayerPlayback({ current: seconds })
         paintProgress(seconds)
       },
+      replay: () => {
+        const audio = audioRef.current
+        if (!audio) return
+        audio.currentTime = 0
+        patchPlayerPlayback({ current: 0, playing: true })
+        paintProgress(0)
+        void audio.play().catch(() => patchPlayerPlayback({ playing: false }))
+      },
     })
     return () => registerPlayerAudioBridge(null)
   }, [])
@@ -75,17 +88,43 @@ export function GlobalMiniPlayer() {
   useEffect(() => {
     const audio = audioRef.current
     if (!audio) return
-    if (!session?.src) {
+
+    if (!session?.minimized || !session.src) {
+      audio.pause()
       audio.removeAttribute('src')
       delete audio.dataset.playerSrc
       audio.load()
       return
     }
-    if (audio.dataset.playerSrc === session.src) return
+
+    const resumeAt = session.resumeAt ?? 0
+    const applyResumeAndPlay = () => {
+      if (resumeAt > 0 && Number.isFinite(resumeAt)) {
+        audio.currentTime = resumeAt
+        progressFillRef.current &&
+          (progressFillRef.current.style.width = `${
+            durationRef.current > 0
+              ? Math.min(100, (resumeAt / durationRef.current) * 100)
+              : 0
+          }%`)
+        if (timeLabelRef.current) {
+          timeLabelRef.current.textContent = formatClock(resumeAt)
+        }
+        patchPlayerPlayback({ current: resumeAt })
+      }
+      void audio.play().catch(() => patchPlayerPlayback({ playing: false }))
+    }
+
+    if (audio.dataset.playerSrc === session.src) {
+      applyResumeAndPlay()
+      return
+    }
+
     audio.dataset.playerSrc = session.src
     audio.src = session.src
-    void audio.play().catch(() => patchPlayerPlayback({ playing: false }))
-  }, [session?.src])
+    if (audio.readyState >= 1) applyResumeAndPlay()
+    else audio.addEventListener('loadedmetadata', applyResumeAndPlay, { once: true })
+  }, [session?.src, session?.minimized, session?.resumeAt])
 
   const paintProgress = (seconds: number) => {
     const dur = durationRef.current
@@ -187,13 +226,31 @@ export function GlobalMiniPlayer() {
                     {session.track.subtitle || '未知'}
                   </p>
                 </div>
-                <FontAwesomeIcon
-                  icon={faUpRightAndDownLeftFromCenter}
-                  className="hidden h-3 w-3 shrink-0 text-white/35 group-hover:text-white/70 sm:block"
-                />
               </button>
 
               <div className="flex shrink-0 items-center gap-1 sm:gap-2">
+                <button
+                  type="button"
+                  onClick={() => cyclePlayMode()}
+                  title={playMode === 'loop-one' ? '单曲循环' : '顺序播放'}
+                  className={`relative inline-flex h-9 w-9 items-center justify-center rounded-full transition-colors hover:bg-white/10 ${
+                    playMode === 'loop-one'
+                      ? 'text-[#ec4141]'
+                      : 'text-white/70 hover:text-white'
+                  }`}
+                  aria-label={playMode === 'loop-one' ? '单曲循环' : '顺序播放'}
+                >
+                  {playMode === 'loop-one' ? (
+                    <>
+                      <FontAwesomeIcon icon={faRepeat} className="h-3.5 w-3.5" />
+                      <span className="absolute bottom-1 right-1 text-[8px] font-semibold leading-none">
+                        1
+                      </span>
+                    </>
+                  ) : (
+                    <FontAwesomeIcon icon={faArrowDownShortWide} className="h-3.5 w-3.5" />
+                  )}
+                </button>
                 <button
                   type="button"
                   disabled={!session.hasPrev}
@@ -244,6 +301,16 @@ export function GlobalMiniPlayer() {
                 title="关闭"
               >
                 <FontAwesomeIcon icon={faXmark} className="h-3.5 w-3.5" />
+              </button>
+
+              <button
+                type="button"
+                onClick={() => playerExpand()}
+                title="展开播放页"
+                className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-white/40 transition-colors hover:bg-white/10 hover:text-white"
+                aria-label="展开播放页"
+              >
+                <FontAwesomeIcon icon={faUpRightAndDownLeftFromCenter} className="h-3 w-3" />
               </button>
             </div>
 

@@ -21,8 +21,10 @@ import { useToast } from '@/components/Toast'
 import { useToolVisible } from '@/shell/ToolVisibility'
 import {
   clearPlayerSession,
+  getPlayerPlayback,
   setPlayerSession,
   usePlayerSource,
+  type AudioSnapshot,
 } from '@/player'
 import { TASK_IDS, upsertTask } from '@/tasks'
 import { cachePreview, downloadAweme, unlikeAweme, applyAwemeSeq } from '../api/douyinApi'
@@ -100,6 +102,8 @@ export function AwemePanel({
   const [previewSrc, setPreviewSrc] = useState<string | null>(null)
   const [previewLoading, setPreviewLoading] = useState(false)
   const [previewError, setPreviewError] = useState<string | null>(null)
+  const dockResumeRef = useRef(0)
+  const [dialogResume, setDialogResume] = useState<AudioSnapshot | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const sentinelRef = useRef<HTMLDivElement>(null)
   const itemsRef = useRef(items)
@@ -362,15 +366,27 @@ export function AwemePanel({
       if (nextIndex < 0 || nextIndex >= list.length) return
       const next = list[nextIndex]
       if (!next) return
+      setDialogResume(null)
       setSelected(next)
       scrollToIndex(nextIndex, 'auto')
     },
     [scrollToIndex],
   )
 
+  const expandFromDock = useCallback(() => {
+    const pb = getPlayerPlayback()
+    setDialogResume({
+      current: pb.current,
+      duration: pb.duration,
+      playing: pb.playing,
+    })
+    setPreviewMinimized(false)
+  }, [])
+
   const closeMusicPreview = useCallback(() => {
     setSelected(null)
     setPreviewMinimized(false)
+    setDialogResume(null)
     if (playerSource === 'douyin') clearPlayerSession()
   }, [playerSource])
 
@@ -380,7 +396,16 @@ export function AwemePanel({
       if (playerSource === 'douyin') clearPlayerSession()
       return
     }
+
+    // Expanded dialog owns local audio — kill bottom mini player.
+    if (!previewMinimized) {
+      clearPlayerSession()
+      return
+    }
+
     const index = items.findIndex((item) => item.awemeId === selected.awemeId)
+    const resumeAt = dockResumeRef.current
+    dockResumeRef.current = 0
     setPlayerSession(
       {
         source: 'douyin',
@@ -395,17 +420,19 @@ export function AwemePanel({
         src: previewSrc,
         loading: previewLoading,
         error: previewError,
-        minimized: previewMinimized,
+        minimized: true,
+        resumeAt: resumeAt > 0 ? resumeAt : undefined,
         hasPrev: index > 0,
         hasNext: index >= 0 && index < items.length - 1,
       },
       {
         onPrev: () => goPreviewOffset(-1),
         onNext: () => goPreviewOffset(1),
-        onExpand: () => setPreviewMinimized(false),
+        onExpand: expandFromDock,
         onClose: () => {
           setSelected(null)
           setPreviewMinimized(false)
+          setDialogResume(null)
         },
       },
     )
@@ -419,6 +446,7 @@ export function AwemePanel({
     items,
     playerSource,
     goPreviewOffset,
+    expandFromDock,
   ])
 
   useEffect(() => {
@@ -433,7 +461,7 @@ export function AwemePanel({
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         if (isMusicKind(kind) && previewMinimized) {
-          setPreviewMinimized(false)
+          expandFromDock()
         } else if (isMusicKind(kind)) {
           closeMusicPreview()
         } else {
@@ -456,7 +484,7 @@ export function AwemePanel({
       window.removeEventListener('keydown', onKey)
       document.body.style.overflow = prev
     }
-  }, [selected, goPreviewOffset, kind, previewMinimized, closeMusicPreview])
+  }, [selected, goPreviewOffset, kind, previewMinimized, closeMusicPreview, expandFromDock])
 
   const handleDownload = useCallback(
     async (item: DouyinAweme) => {
@@ -549,6 +577,10 @@ export function AwemePanel({
   )
 
   const handleSelect = useCallback((item: DouyinAweme) => {
+    // Opening a row always expands the dialog and kills the bottom player.
+    clearPlayerSession()
+    setDialogResume(null)
+    setPreviewMinimized(false)
     setSelected(item)
   }, [])
 
@@ -976,18 +1008,25 @@ export function AwemePanel({
                 {isMusicKind(kind) ? (
                   <MusicPreviewDialog
                     item={selected}
+                    src={previewSrc}
                     previewLoading={previewLoading}
                     previewError={previewError}
                     downloaded={selectedDownloaded}
                     downloading={downloadingId === selected.awemeId}
                     controlsLocked={controlsLocked}
                     canReveal={!!(lastPath || selectedDownloaded?.path)}
+                    resume={dialogResume}
                     hasPrev={selectedIndex > 0}
                     hasNext={selectedIndex >= 0 && selectedIndex < items.length - 1}
-                    onMinimize={() => setPreviewMinimized(true)}
+                    onMinimize={(snap) => {
+                      dockResumeRef.current = snap.current
+                      setDialogResume(null)
+                      setPreviewMinimized(true)
+                    }}
                     onClose={closeMusicPreview}
                     onPrev={() => goPreviewOffset(-1)}
                     onNext={() => goPreviewOffset(1)}
+                    onEnded={() => goPreviewOffset(1)}
                     onDownload={() => void handleDownload(selected)}
                     onReveal={() => {
                       const entry =

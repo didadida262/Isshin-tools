@@ -2,6 +2,9 @@ import { useSyncExternalStore } from 'react'
 
 export type PlayerSource = 'netease' | 'douyin'
 
+/** sequential = play next on end; loop-one = repeat current track */
+export type PlayMode = 'sequential' | 'loop-one'
+
 export type PlayerTrackMeta = {
   id: string
   title: string
@@ -18,9 +21,12 @@ export type PlayerSession = {
   src: string | null
   loading: boolean
   error: string | null
+  /** Mini bar is only shown when true (explicit minimize / dock). */
   minimized: boolean
   hasPrev: boolean
   hasNext: boolean
+  /** One-shot seek after docking from an expanded dialog. */
+  resumeAt?: number
 }
 
 export type PlayerPlayback = {
@@ -40,9 +46,11 @@ export type PlayerHandlers = {
 
 const sessionListeners = new Set<() => void>()
 const playbackListeners = new Set<() => void>()
+const playModeListeners = new Set<() => void>()
 
 let session: PlayerSession | null = null
 let playback: PlayerPlayback = { playing: false, current: 0, duration: 0 }
+let playMode: PlayMode = 'sequential'
 let handlers: PlayerHandlers | null = null
 let navigateToTool: ((toolId: string) => void) | null = null
 
@@ -50,10 +58,13 @@ let navigateToTool: ((toolId: string) => void) | null = null
 let sessionSnap: PlayerSession | null = null
 let sourceSnap: PlayerSource | null = null
 let playbackSnap: PlayerPlayback = playback
+let playModeSnap: PlayMode = playMode
 
 type AudioBridge = {
   toggle: () => void
   seek: (seconds: number) => void
+  /** Seek to 0 and play — used by single-track loop */
+  replay: () => void
 }
 let audioBridge: AudioBridge | null = null
 
@@ -66,6 +77,11 @@ function publishSession() {
 function publishPlayback() {
   playbackSnap = playback
   playbackListeners.forEach((listener) => listener())
+}
+
+function publishPlayMode() {
+  playModeSnap = playMode
+  playModeListeners.forEach((listener) => listener())
 }
 
 export function subscribePlayerSession(listener: () => void) {
@@ -82,6 +98,13 @@ export function subscribePlayerPlayback(listener: () => void) {
   }
 }
 
+export function subscribePlayMode(listener: () => void) {
+  playModeListeners.add(listener)
+  return () => {
+    playModeListeners.delete(listener)
+  }
+}
+
 export function getPlayerSession() {
   return sessionSnap
 }
@@ -92,6 +115,10 @@ export function getPlayerSource() {
 
 export function getPlayerPlayback() {
   return playbackSnap
+}
+
+export function getPlayMode() {
+  return playModeSnap
 }
 
 /** Full session — for GlobalMiniPlayer chrome. */
@@ -119,6 +146,20 @@ export function usePlayerPlayback() {
     getPlayerPlayback,
     getPlayerPlayback,
   )
+}
+
+export function usePlayMode() {
+  return useSyncExternalStore(subscribePlayMode, getPlayMode, getPlayMode)
+}
+
+export function setPlayMode(next: PlayMode) {
+  if (playMode === next) return
+  playMode = next
+  publishPlayMode()
+}
+
+export function cyclePlayMode() {
+  setPlayMode(playMode === 'sequential' ? 'loop-one' : 'sequential')
 }
 
 /** @deprecated prefer usePlayerSession / usePlayerPlayback */
@@ -151,6 +192,7 @@ function sessionShallowEqual(a: PlayerSession | null, b: PlayerSession): boolean
     a.minimized === b.minimized &&
     a.hasPrev === b.hasPrev &&
     a.hasNext === b.hasNext &&
+    a.resumeAt === b.resumeAt &&
     a.track.id === b.track.id &&
     a.track.title === b.track.title &&
     a.track.subtitle === b.track.subtitle &&
@@ -239,6 +281,10 @@ export function playerNext() {
 }
 
 export function playerEnded() {
+  if (playMode === 'loop-one') {
+    audioBridge?.replay()
+    return
+  }
   if (handlers?.onEnded) handlers.onEnded()
   else handlers?.onNext()
 }
@@ -251,10 +297,7 @@ export function playerClose() {
 export function playerExpand() {
   if (!session) return
   const toolId = session.toolId
-  if (session.minimized) {
-    session = { ...session, minimized: false }
-    publishSession()
-  }
   navigateToTool?.(toolId)
+  // Tool opens the full dialog and clears the docked mini session.
   handlers?.onExpand()
 }

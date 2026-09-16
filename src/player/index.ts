@@ -1,13 +1,20 @@
 export { GlobalMiniPlayer } from './GlobalMiniPlayer'
+export { useLocalAudio, type AudioSnapshot } from './useLocalAudio'
 export {
   usePlayer,
   usePlayerSession,
   usePlayerSource,
   usePlayerPlayback,
+  usePlayMode,
   setPlayerSession,
   patchPlayerSession,
   setPlayerMinimized,
   clearPlayerSession,
+  getPlayerPlayback,
+  getPlayerSession,
+  getPlayMode,
+  setPlayMode,
+  cyclePlayMode,
   registerPlayerHandlers,
   registerPlayerNavigate,
   playerToggle,
@@ -21,4 +28,5 @@ export {
   type PlayerTrackMeta,
   type PlayerSession,
   type PlayerHandlers,
+  type PlayMode,
 } from './playerStore'

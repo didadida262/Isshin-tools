@@ -1,19 +1,21 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { motion } from 'framer-motion'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
 import {
+  faArrowDownShortWide,
   faBackwardStep,
   faCircleCheck,
   faFolderOpen,
   faForwardStep,
   faPause,
   faPlay,
+  faRepeat,
   faSatelliteDish,
   faSpinner,
   faWindowMinimize,
   faXmark,
 } from '@fortawesome/free-solid-svg-icons'
-import { playerSeek, playerToggle, usePlayerPlayback } from '@/player'
+import { cyclePlayMode, useLocalAudio, usePlayMode, type AudioSnapshot } from '@/player'
 import type { BiliDownloadedEntry } from '../api/bilibiliSniff'
 import type { NeteaseTrack } from '../types'
 
@@ -28,50 +30,59 @@ function formatClock(seconds: number) {
 export interface TrackPreviewDialogProps {
   track: NeteaseTrack
   coverUrl?: string | null
+  src: string | null
   previewLoading: boolean
   previewError: string | null
   downloaded: BiliDownloadedEntry | undefined
   canReveal: boolean
-  onMinimize: () => void
+  resume?: AudioSnapshot | null
+  onMinimize: (snapshot: AudioSnapshot) => void
   onClose: () => void
   onReveal: () => void
   onSniff: () => void
   onPrev: () => void
   onNext: () => void
+  onEnded?: () => void
   hasPrev: boolean
   hasNext: boolean
 }
 
-/** Full “Now Playing” modal — audio lives in GlobalMiniPlayer. */
+/** Full “Now Playing” modal — owns local audio until user minimizes to the dock. */
 export function TrackPreviewDialog({
   track,
   coverUrl,
+  src,
   previewLoading,
   previewError,
   downloaded,
   canReveal,
+  resume,
   onMinimize,
   onClose,
   onReveal,
   onSniff,
   onPrev,
   onNext,
+  onEnded,
   hasPrev,
   hasNext,
 }: TrackPreviewDialogProps) {
-  const playback = usePlayerPlayback()
   const [seeking, setSeeking] = useState(false)
   const [seekValue, setSeekValue] = useState(0)
+  const playMode = usePlayMode()
+  const { audioEl, playing, current, duration, toggle, seek, snapshot } = useLocalAudio(src, {
+    resume,
+    onEnded,
+  })
+  const snapshotRef = useRef(snapshot)
+  snapshotRef.current = snapshot
 
-  const current = seeking ? seekValue : playback.current
-  const duration =
-    playback.duration > 0
-      ? playback.duration
-      : track.durationMs > 0
-        ? track.durationMs / 1000
-        : 0
-  const progress = duration > 0 ? Math.min(1, current / duration) : 0
-  const canControl = !previewLoading && !previewError
+  const displayCurrent = seeking ? seekValue : current
+  const displayDuration =
+    duration > 0 ? duration : track.durationMs > 0 ? track.durationMs / 1000 : 0
+  const progress =
+    displayDuration > 0 ? Math.min(1, displayCurrent / displayDuration) : 0
+  const canControl = !previewLoading && !previewError && !!src
 
   return (
     <motion.div
@@ -84,6 +95,7 @@ export function TrackPreviewDialog({
       transition={{ duration: 0.22, ease: 'easeOut' }}
       className="relative z-10 flex h-[min(82vh,560px)] w-full max-w-lg flex-col overflow-hidden rounded-3xl border border-white/10 bg-[#0c0d10] shadow-2xl shadow-black/50"
     >
+      {audioEl}
       <div className="pointer-events-none absolute inset-0 overflow-hidden">
         {coverUrl ? (
           <>
@@ -108,7 +120,7 @@ export function TrackPreviewDialog({
         <div className="flex items-center gap-1">
           <button
             type="button"
-            onClick={onMinimize}
+            onClick={() => onMinimize(snapshotRef.current())}
             className="inline-flex h-8 w-8 items-center justify-center rounded-full text-white/50 transition-colors hover:bg-white/10 hover:text-white"
             aria-label="最小化到播放栏"
             title="最小化"
@@ -131,7 +143,7 @@ export function TrackPreviewDialog({
           <div className="relative shrink-0">
             <div
               className={`relative h-18 w-18 rounded-full border border-white/15 bg-black/40 p-0.75 shadow-[0_0_40px_rgba(0,0,0,0.45)] ${
-                playback.playing ? 'music-disc-spin' : ''
+                playing ? 'music-disc-spin' : ''
               }`}
             >
               {coverUrl ? (
@@ -146,7 +158,7 @@ export function TrackPreviewDialog({
               )}
               <span className="absolute left-1/2 top-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full border border-white/30 bg-[#0c0d10]" />
             </div>
-            {playback.playing && (
+            {playing && (
               <span className="absolute -inset-1 rounded-full border border-white/10 opacity-60" />
             )}
           </div>
@@ -165,7 +177,7 @@ export function TrackPreviewDialog({
               <p className="mt-0.5 truncate text-[11px] text-white/35">{track.album}</p>
             ) : null}
             <p className="mt-2 text-[10px] tracking-wide text-white/35">
-              ↑↓ 切换曲目 · Esc 关闭 · 可最小化到底栏（切换工具继续播）
+              ↑↓ 切换曲目 · Esc 关闭 · 最小化后加入底栏播放器
             </p>
           </div>
         </div>
@@ -186,24 +198,24 @@ export function TrackPreviewDialog({
               <input
                 type="range"
                 min={0}
-                max={duration || 1}
+                max={displayDuration || 1}
                 step={0.05}
-                value={Math.min(current, duration || 0)}
+                value={Math.min(displayCurrent, displayDuration || 0)}
                 onMouseDown={() => {
                   setSeeking(true)
-                  setSeekValue(playback.current)
+                  setSeekValue(current)
                 }}
                 onTouchStart={() => {
                   setSeeking(true)
-                  setSeekValue(playback.current)
+                  setSeekValue(current)
                 }}
                 onChange={(e) => setSeekValue(Number(e.target.value))}
                 onMouseUp={(e) => {
-                  playerSeek(Number((e.target as HTMLInputElement).value))
+                  seek(Number((e.target as HTMLInputElement).value))
                   setSeeking(false)
                 }}
                 onTouchEnd={(e) => {
-                  playerSeek(Number((e.target as HTMLInputElement).value))
+                  seek(Number((e.target as HTMLInputElement).value))
                   setSeeking(false)
                 }}
                 className="music-seek h-1.5 w-full cursor-pointer appearance-none rounded-full bg-white/15"
@@ -213,14 +225,34 @@ export function TrackPreviewDialog({
                 aria-label="播放进度"
               />
               <div className="flex justify-between text-[10px] tabular-nums text-white/40">
-                <span>{formatClock(current)}</span>
-                <span>{formatClock(duration)}</span>
+                <span>{formatClock(displayCurrent)}</span>
+                <span>{formatClock(displayDuration)}</span>
               </div>
             </div>
           )}
 
           {!previewLoading && (
             <div className="flex items-center justify-center gap-5 pb-1">
+              <button
+                type="button"
+                onClick={() => cyclePlayMode()}
+                title={playMode === 'loop-one' ? '单曲循环' : '顺序播放'}
+                className={`relative inline-flex h-10 w-10 items-center justify-center rounded-full transition-colors hover:bg-white/10 ${
+                  playMode === 'loop-one' ? 'text-white' : 'text-white/70 hover:text-white'
+                }`}
+                aria-label={playMode === 'loop-one' ? '单曲循环' : '顺序播放'}
+              >
+                {playMode === 'loop-one' ? (
+                  <>
+                    <FontAwesomeIcon icon={faRepeat} className="h-4 w-4" />
+                    <span className="absolute bottom-1.5 right-1.5 text-[9px] font-semibold leading-none">
+                      1
+                    </span>
+                  </>
+                ) : (
+                  <FontAwesomeIcon icon={faArrowDownShortWide} className="h-4 w-4" />
+                )}
+              </button>
               <button
                 type="button"
                 disabled={!hasPrev}
@@ -234,13 +266,13 @@ export function TrackPreviewDialog({
               <button
                 type="button"
                 disabled={!canControl}
-                onClick={() => playerToggle()}
+                onClick={toggle}
                 className="inline-flex h-14 w-14 items-center justify-center rounded-full bg-white text-[#0c0d10] shadow-[0_8px_30px_rgba(255,255,255,0.18)] transition-transform hover:scale-[1.04] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40"
-                aria-label={playback.playing ? '暂停' : '播放'}
+                aria-label={playing ? '暂停' : '播放'}
               >
                 <FontAwesomeIcon
-                  icon={playback.playing ? faPause : faPlay}
-                  className={`h-5 w-5 ${playback.playing ? '' : 'translate-x-0.5'}`}
+                  icon={playing ? faPause : faPlay}
+                  className={`h-5 w-5 ${playing ? '' : 'translate-x-0.5'}`}
                 />
               </button>
               <button
@@ -258,7 +290,7 @@ export function TrackPreviewDialog({
         </div>
       </div>
 
-      <div className="relative z-10 flex shrink-0 items-center justify-between gap-3 border-t border-white/8 bg-black/25 px-5 py-3 backdrop-blur-md">
+      <div className="relative z-10 flex shrink-0 items-center justify-between gap-3 border-t border-white/8 bg-black/25 px-5 py-3">
         <div className="min-w-0 text-[11px] text-white/40">
           {formatClock(track.durationMs / 1000)}
           {track.album ? (

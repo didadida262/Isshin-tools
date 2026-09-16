@@ -27,8 +27,10 @@ import { useDebouncedValue } from '@/hooks/useDebouncedValue'
 import { useToolVisible } from '@/shell/ToolVisibility'
 import {
   clearPlayerSession,
+  getPlayerPlayback,
   setPlayerSession,
   usePlayerSource,
+  type AudioSnapshot,
 } from '@/player'
 import {
   dismissTask,
@@ -104,6 +106,8 @@ export function TrackPanel({
   const [previewSrc, setPreviewSrc] = useState<string | null>(null)
   const [previewLoading, setPreviewLoading] = useState(false)
   const [previewError, setPreviewError] = useState<string | null>(null)
+  const dockResumeRef = useRef<number>(0)
+  const [dialogResume, setDialogResume] = useState<AudioSnapshot | null>(null)
   const [batchActive, setBatchActive] = useState(false)
   const [batchStopping, setBatchStopping] = useState(false)
   const [batchSongId, setBatchSongId] = useState<number | null>(null)
@@ -296,6 +300,7 @@ export function TrackPanel({
         while (nextIndex >= 0 && nextIndex < list.length) {
           const candidate = list[nextIndex]
           if (candidate && bySongIdRef.current.has(candidate.songId)) {
+            setDialogResume(null)
             setPreviewTrack(candidate)
             scrollPreviewIntoView(candidate.songId)
             return
@@ -309,6 +314,7 @@ export function TrackPanel({
       if (nextIndex < 0 || nextIndex >= list.length) return
       const next = list[nextIndex]
       if (!next) return
+      setDialogResume(null)
       setPreviewTrack(next)
       scrollPreviewIntoView(next.songId)
     },
@@ -320,8 +326,17 @@ export function TrackPanel({
       if (playerSource === 'netease') clearPlayerSession()
       return
     }
+
+    // Expanded dialog owns local audio — bottom mini player must stay gone.
+    if (!previewMinimized) {
+      clearPlayerSession()
+      return
+    }
+
     const list = filteredRef.current
     const index = list.findIndex((t) => t.songId === previewTrack.songId)
+    const resumeAt = dockResumeRef.current
+    dockResumeRef.current = 0
     setPlayerSession(
       {
         source: 'netease',
@@ -336,7 +351,8 @@ export function TrackPanel({
         src: previewSrc,
         loading: previewLoading,
         error: previewError,
-        minimized: previewMinimized,
+        minimized: true,
+        resumeAt: resumeAt > 0 ? resumeAt : undefined,
         hasPrev: index > 0,
         hasNext: index >= 0 && index < list.length - 1,
       },
@@ -344,10 +360,19 @@ export function TrackPanel({
         onPrev: () => goPreviewOffset(-1),
         onNext: () => goPreviewOffset(1),
         onEnded: () => goPreviewOffset(1, { preferDownloaded: true }),
-        onExpand: () => setPreviewMinimized(false),
+        onExpand: () => {
+          const pb = getPlayerPlayback()
+          setDialogResume({
+            current: pb.current,
+            duration: pb.duration,
+            playing: pb.playing,
+          })
+          setPreviewMinimized(false)
+        },
         onClose: () => {
           setPreviewTrack(null)
           setPreviewMinimized(false)
+          setDialogResume(null)
         },
       },
     )
@@ -374,6 +399,12 @@ export function TrackPanel({
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         if (previewMinimized) {
+          const pb = getPlayerPlayback()
+          setDialogResume({
+            current: pb.current,
+            duration: pb.duration,
+            playing: pb.playing,
+          })
           setPreviewMinimized(false)
         } else {
           closePreview()
@@ -663,6 +694,9 @@ export function TrackPanel({
   const openPreview = useCallback(
     (track: NeteaseTrack) => {
       if (batchActive) return
+      // Opening a row always expands the dialog and kills the bottom player.
+      clearPlayerSession()
+      setDialogResume(null)
       setPreviewMinimized(false)
       setPreviewTrack(track)
     },
@@ -944,7 +978,7 @@ export function TrackPanel({
                           type="button"
                           disabled={batchActive}
                           onClick={() => setSniffTrack(track)}
-                          className={`inline-flex h-7 w-7 items-center justify-center rounded-lg text-[11px] transition-colors duration-200 hover:bg-background disabled:cursor-not-allowed disabled:opacity-40 ${
+                          className={`inline-flex h-6 w-6 items-center justify-center rounded-md transition-colors duration-200 hover:bg-background disabled:cursor-not-allowed disabled:opacity-40 ${
                             downloaded
                               ? 'text-success hover:text-success'
                               : isBatchTarget
@@ -956,7 +990,7 @@ export function TrackPanel({
                         >
                           <FontAwesomeIcon
                             icon={isBatchTarget && batchActive ? faSpinner : faSatelliteDish}
-                            className={`h-3 w-3 ${isBatchTarget && batchActive ? 'animate-spin' : ''}`}
+                            className={`!h-3 !w-3 ${isBatchTarget && batchActive ? 'animate-spin' : ''}`}
                           />
                         </button>
                         {downloaded && (
@@ -964,23 +998,23 @@ export function TrackPanel({
                             <button
                               type="button"
                               onClick={() => void revealExport(downloaded.path)}
-                              className="inline-flex h-7 w-7 items-center justify-center rounded-lg text-muted transition-colors duration-200 hover:bg-background hover:text-foreground"
+                              className="inline-flex h-6 w-6 items-center justify-center rounded-md text-muted transition-colors duration-200 hover:bg-background hover:text-foreground"
                               title="打开文件位置"
                               aria-label={`打开 ${track.name} 所在文件夹`}
                             >
-                              <FontAwesomeIcon icon={faFolderOpen} className="h-3 w-3" />
+                              <FontAwesomeIcon icon={faFolderOpen} className="!h-3 !w-3" />
                             </button>
                             <button
                               type="button"
                               disabled={batchActive || syncing || deletingSongId != null}
                               onClick={() => void handleDeleteLocal(track)}
-                              className="inline-flex h-7 w-7 items-center justify-center rounded-lg text-muted transition-colors duration-200 hover:bg-background hover:text-danger disabled:cursor-not-allowed disabled:opacity-40"
+                              className="inline-flex h-6 w-6 items-center justify-center rounded-md text-muted transition-colors duration-200 hover:bg-background hover:text-danger disabled:cursor-not-allowed disabled:opacity-40"
                               title="删除本地文件"
                               aria-label={`删除 ${track.name} 的本地文件`}
                             >
                               <FontAwesomeIcon
                                 icon={deletingSongId === track.songId ? faSpinner : faTrashCan}
-                                className={`h-3 w-3 ${deletingSongId === track.songId ? 'animate-spin' : ''}`}
+                                className={`!h-3 !w-3 ${deletingSongId === track.songId ? 'animate-spin' : ''}`}
                               />
                             </button>
                           </>
@@ -1028,16 +1062,23 @@ export function TrackPanel({
                 <TrackPreviewDialog
                   track={previewTrack}
                   coverUrl={playlist?.coverImgUrl}
+                  src={previewSrc}
                   previewLoading={previewLoading}
                   previewError={previewError}
                   downloaded={previewDownloaded}
                   canReveal={!!previewDownloaded?.path}
+                  resume={dialogResume}
                   hasPrev={previewIndex > 0}
                   hasNext={previewIndex >= 0 && previewIndex < filtered.length - 1}
-                  onMinimize={() => setPreviewMinimized(true)}
+                  onMinimize={(snap) => {
+                    dockResumeRef.current = snap.current
+                    setDialogResume(null)
+                    setPreviewMinimized(true)
+                  }}
                   onClose={closePreview}
                   onPrev={() => goPreviewOffset(-1)}
                   onNext={() => goPreviewOffset(1)}
+                  onEnded={() => goPreviewOffset(1, { preferDownloaded: true })}
                   onReveal={() => {
                     if (previewDownloaded?.path) void revealExport(previewDownloaded.path)
                   }}
