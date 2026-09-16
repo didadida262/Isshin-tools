@@ -48,7 +48,7 @@ export async function runAutoSniffDownload(opts: {
   onStatus?: (text: string) => void
 }): Promise<SniffAutoOutcome> {
   const { track, playlist, playlistIndex, playlistTotal, isCancelled, onStatus } = opts
-  const keyword = [track.name, track.artists, 'MV'].filter(Boolean).join(' ')
+  const keyword = [track.name, track.artists, 'MV', 'Hi-Res'].filter(Boolean).join(' ')
   const durationMs = track.durationMs || undefined
   const preferredTitle = `${track.artists || '未知'} - ${track.name}`
 

@@ -22,7 +22,6 @@ export function Sidebar({ activeToolId, onSelect }: SidebarProps) {
           <p className="font-display text-base font-semibold leading-tight tracking-tight text-foreground">
             Isshin Tools
           </p>
-          <p className="mt-0.5 truncate text-xs text-subtle">⌃⌘A 全局截屏</p>
         </div>
       </div>
 

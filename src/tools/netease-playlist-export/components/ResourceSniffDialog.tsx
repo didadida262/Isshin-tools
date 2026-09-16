@@ -133,7 +133,7 @@ export function ResourceSniffDialog({
     loadingMoreRef.current = false
     setAutoStatus(autoDownloadFirst ? '正在 B 站搜索…' : null)
     setAutoTargetBvid(null)
-    const keyword = [track.name, track.artists, 'MV'].filter(Boolean).join(' ')
+    const keyword = [track.name, track.artists, 'MV', 'Hi-Res'].filter(Boolean).join(' ')
     const durationMs = track.durationMs || undefined
 
     const sleepSec = (sec: number) =>
@@ -227,7 +227,7 @@ export function ResourceSniffDialog({
     const nextPage = pageRef.current + 1
     loadingMoreRef.current = true
     setLoadingMore(true)
-    const keyword = [track.name, track.artists, 'MV'].filter(Boolean).join(' ')
+    const keyword = [track.name, track.artists, 'MV', 'Hi-Res'].filter(Boolean).join(' ')
     const durationMs = track.durationMs || undefined
     try {
       const result = await searchBilibili(keyword, durationMs, nextPage)
