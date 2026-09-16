@@ -4,6 +4,7 @@ import {
   faChartLine,
   faClapperboard,
   faHelicopter,
+  faCar,
   faMusic,
   faDownload,
 } from '@fortawesome/free-solid-svg-icons'
@@ -12,6 +13,7 @@ import { GoldFactorsTool } from '@/tools/gold-factors'
 import { DouyinDownloaderTool } from '@/tools/douyin-downloader'
 import { BilibiliDownloaderTool } from '@/tools/bilibili-downloader'
 import { DroneTrainingTool } from '@/tools/drone-training'
+import { RcCarTrainingTool } from '@/tools/rc-car-training'
 
 export interface ToolDefinition {
   id: string
@@ -56,6 +58,13 @@ export const toolsRegistry: ToolDefinition[] = [
     description: '从 0 焊到悬停 · 分阶段实操',
     icon: faHelicopter,
     component: DroneTrainingTool,
+  },
+  {
+    id: 'rc-car-training',
+    name: '遥控小车培训',
+    description: '树莓派无线遥控 · 从原理到动手',
+    icon: faCar,
+    component: RcCarTrainingTool,
   },
 ]
 
