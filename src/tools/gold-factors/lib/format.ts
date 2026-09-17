@@ -73,6 +73,7 @@ export function formatDelta(
 }
 
 export function deltaBaselineLabel(metric: FactorMetric): string {
+  if (metric.id === 'fed-funds') return '较上次决议'
   if (metric.cadence !== 'realtime') return '较前值'
   if (metric.unit === 'USD/oz' || metric.unit === 'CNY/g') return '较昨结'
   return '较昨收'
@@ -86,6 +87,8 @@ export function cadenceLabel(cadence: FactorMetric['cadence']): string {
       return '日频'
     case 'monthly':
       return '月/季'
+    case 'event':
+      return 'FOMC'
   }
 }
 

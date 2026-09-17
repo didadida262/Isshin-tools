@@ -8,8 +8,8 @@ interface FactorGridProps {
 }
 
 const TOP_IDS = ['real-yield-10y', 'dxy', 'breakeven-10y'] as const
-const STACK_IDS = ['nominal-10y', 'vix-proxy'] as const
-const SIDE_ID = 'cb-gold'
+const MID_IDS = ['fed-funds', 'nominal-10y', 'vix-proxy'] as const
+const FULL_ID = 'cb-gold'
 
 function byId(metrics: FactorMetric[], id: string) {
   return metrics.find((m) => m.id === id) ?? null
@@ -24,26 +24,25 @@ export function FactorGrid({ metrics, loading }: FactorGridProps) {
             <SkeletonCard key={`top-${i}`} />
           ))}
         </div>
-        <div className="grid gap-3 xl:grid-cols-2">
-          <div className="flex h-full flex-col gap-3">
-            <SkeletonCard className="flex-1" />
-            <SkeletonCard className="flex-1" />
-          </div>
-          <SkeletonCard tall />
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <SkeletonCard key={`mid-${i}`} />
+          ))}
         </div>
+        <SkeletonCard tall />
       </div>
     )
   }
 
   const display = metrics.filter((m) => m.id !== 'xau-usd')
   const top = TOP_IDS.map((id) => byId(display, id)).filter(Boolean) as FactorMetric[]
-  const stack = STACK_IDS.map((id) => byId(display, id)).filter(Boolean) as FactorMetric[]
-  const side = byId(display, SIDE_ID)
+  const mid = MID_IDS.map((id) => byId(display, id)).filter(Boolean) as FactorMetric[]
+  const full = byId(display, FULL_ID)
   const rest = display.filter(
     (m) =>
       !(TOP_IDS as readonly string[]).includes(m.id) &&
-      !(STACK_IDS as readonly string[]).includes(m.id) &&
-      m.id !== SIDE_ID,
+      !(MID_IDS as readonly string[]).includes(m.id) &&
+      m.id !== FULL_ID,
   )
 
   return (
@@ -56,18 +55,15 @@ export function FactorGrid({ metrics, loading }: FactorGridProps) {
         </div>
       )}
 
-      {(stack.length > 0 || side) && (
-        <div className="grid gap-3 xl:grid-cols-2">
-          <div className="flex h-full flex-col gap-3">
-            {stack.map((metric) => (
-              <div key={metric.id} className="min-h-0 flex-1">
-                <FactorCard metric={metric} />
-              </div>
-            ))}
-          </div>
-          {side && <FactorCard metric={side} />}
+      {mid.length > 0 && (
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+          {mid.map((metric) => (
+            <FactorCard key={metric.id} metric={metric} />
+          ))}
         </div>
       )}
+
+      {full && <FactorCard metric={full} />}
 
       {rest.length > 0 && (
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">

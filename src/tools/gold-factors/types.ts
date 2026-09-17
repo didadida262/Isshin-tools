@@ -1,4 +1,4 @@
-export type FactorCadence = 'realtime' | 'daily' | 'monthly'
+export type FactorCadence = 'realtime' | 'daily' | 'monthly' | 'event'
 
 export type GoldBias = 'bullish' | 'bearish' | 'neutral'
 

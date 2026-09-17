@@ -98,6 +98,61 @@ function normalizeTreasuryDate(raw: string): string {
   return `20${yy}-${mm}-${dd}`
 }
 
+function parsePercentCell(raw: string): number | null {
+  const m = raw.replace(/,/g, '').match(/(-?\d+(?:\.\d+)?)\s*%?/)
+  if (!m) return null
+  const n = Number(m[1])
+  return Number.isFinite(n) ? n : null
+}
+
+/**
+ * Parse Trading Economics US Fed Funds Interest Rate page.
+ * Prefers the latest completed "Fed Interest Rate Decision" calendar row
+ * (Actual / Previous), which surfaces FOMC 25bp moves that 10Y yields may not.
+ */
+export function parseTradingEconomicsFedFunds(html: string): {
+  value: number
+  previous: number | null
+  asOf: string | null
+} | null {
+  const rows = html.match(/<tr[\s\S]*?<\/tr>/gi) ?? []
+  for (const row of rows) {
+    if (!/Fed Interest Rate Decision/i.test(row)) continue
+    const actualMatch = row.match(
+      /id=["']actual["'][^>]*>\s*([^<]*?)\s*</i,
+    )
+    const previousMatch = row.match(
+      /id=["']previous["'][^>]*>\s*([^<]*?)\s*</i,
+    )
+    const actual = actualMatch ? parsePercentCell(actualMatch[1] ?? '') : null
+    if (actual === null) continue
+    const previous = previousMatch
+      ? parsePercentCell(previousMatch[1] ?? '')
+      : null
+    const dateMatch = row.match(/\b(20\d{2}-\d{2}-\d{2})\b/)
+    return {
+      value: actual,
+      previous,
+      asOf: dateMatch?.[1] ?? null,
+    }
+  }
+
+  const meta = html.match(
+    /last recorded at\s+(\d+(?:\.\d+)?)\s+percent/i,
+  )
+  if (!meta?.[1]) return null
+  const value = Number(meta[1])
+  if (!Number.isFinite(value)) return null
+  const coverage = html.match(
+    /temporalCoverage"\s*:\s*"[^"]*?\/(20\d{2}-\d{2}-\d{2})"/,
+  )
+  return {
+    value,
+    previous: null,
+    asOf: coverage?.[1] ?? null,
+  }
+}
+
 function lastTwo(obs: FactorObservation[]): {
   current: FactorObservation | null
   previous: FactorObservation | null
@@ -464,6 +519,38 @@ async function fetchTreasuryMetric(opts: {
   }
 }
 
+async function fetchFedFunds(): Promise<FactorMetric> {
+  const base = {
+    id: 'fed-funds',
+    label: '联邦基金利率',
+    shortLabel: 'FFR',
+    description: 'FOMC 政策利率目标 · 隔夜资金成本',
+    cadence: 'event' as const,
+    unit: '%',
+    source: 'Trading Economics',
+    goldFriendlyWhen: 'down' as const,
+  }
+
+  try {
+    const html = await httpGetText(
+      'https://tradingeconomics.com/united-states/interest-rate',
+    )
+    const parsed = parseTradingEconomicsFedFunds(html)
+    if (!parsed) throw new Error('联邦基金利率解析失败')
+    return metricBase({
+      ...base,
+      value: parsed.value,
+      previousValue: parsed.previous,
+      asOf: parsed.asOf,
+    })
+  } catch (e) {
+    return metricBase({
+      ...base,
+      error: errorMessage(e) || '联邦基金利率拉取失败',
+    })
+  }
+}
+
 function buildBreakeven(
   nominal: FactorMetric,
   real: FactorMetric,
@@ -642,45 +729,56 @@ async function fetchCentralBankGold(): Promise<FactorMetric> {
 }
 
 /**
- * Uses China-reachable sources (Treasury XML + Sina + WGC).
+ * Uses China-reachable sources (Treasury XML + Sina + WGC + Trading Economics).
  * FRED is intentionally not primary — often blocked / HTTP2-unstable.
  */
 export async function fetchGoldFactorsSnapshot(): Promise<GoldFactorsSnapshot> {
-  const [spotGold, shanghaiGold, dxy, nominal10y, realYield, risk, cbGold] = await Promise.all([
-    fetchSpotGold(),
-    fetchShanghaiGold(),
-    fetchDxy(),
-    fetchTreasuryMetric({
-      id: 'nominal-10y',
-      url: 'https://home.treasury.gov/sites/default/files/interest-rates/yield.xml',
-      dateTag: 'BID_CURVE_DATE',
-      valueTag: 'BC_10YEAR',
-      label: '10Y 名义利率',
-      shortLabel: 'UST',
-      description: '美债名义收益率 · UST 日曲线',
-      source: 'U.S. Treasury yield.xml',
-      goldFriendlyWhen: 'down',
-    }),
-    fetchTreasuryMetric({
-      id: 'real-yield-10y',
-      url: 'https://home.treasury.gov/sites/default/files/interest-rates/real_yield.xml',
-      dateTag: 'TIPS_CURVE_DATE',
-      valueTag: 'TC_10YEAR',
-      label: '10Y 实际利率',
-      shortLabel: 'Real',
-      description: 'TIPS 实际收益率 · 持金机会成本（核心）',
-      source: 'U.S. Treasury real_yield.xml',
-      goldFriendlyWhen: 'down',
-    }),
-    fetchRiskProxy(),
-    fetchCentralBankGold(),
-  ])
+  const [spotGold, shanghaiGold, dxy, nominal10y, realYield, fedFunds, risk, cbGold] =
+    await Promise.all([
+      fetchSpotGold(),
+      fetchShanghaiGold(),
+      fetchDxy(),
+      fetchTreasuryMetric({
+        id: 'nominal-10y',
+        url: 'https://home.treasury.gov/sites/default/files/interest-rates/yield.xml',
+        dateTag: 'BID_CURVE_DATE',
+        valueTag: 'BC_10YEAR',
+        label: '10Y 名义利率',
+        shortLabel: 'UST',
+        description: '美债名义收益率 · UST 日曲线',
+        source: 'U.S. Treasury yield.xml',
+        goldFriendlyWhen: 'down',
+      }),
+      fetchTreasuryMetric({
+        id: 'real-yield-10y',
+        url: 'https://home.treasury.gov/sites/default/files/interest-rates/real_yield.xml',
+        dateTag: 'TIPS_CURVE_DATE',
+        valueTag: 'TC_10YEAR',
+        label: '10Y 实际利率',
+        shortLabel: 'Real',
+        description: 'TIPS 实际收益率 · 持金机会成本（核心）',
+        source: 'U.S. Treasury real_yield.xml',
+        goldFriendlyWhen: 'down',
+      }),
+      fetchFedFunds(),
+      fetchRiskProxy(),
+      fetchCentralBankGold(),
+    ])
 
   const breakeven = buildBreakeven(nominal10y, realYield)
 
   return {
     fetchedAt: new Date().toISOString(),
-    metrics: [spotGold, realYield, dxy, breakeven, nominal10y, risk, cbGold],
+    metrics: [
+      spotGold,
+      realYield,
+      dxy,
+      breakeven,
+      fedFunds,
+      nominal10y,
+      risk,
+      cbGold,
+    ],
     spotGold: spotGold.value !== null ? spotGold : null,
     shanghaiGold: shanghaiGold.value !== null ? shanghaiGold : null,
   }

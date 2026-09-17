@@ -15,7 +15,7 @@ export function GoldFactorsTool() {
           黄金影响因子
         </h1>
         <p className="mt-1 max-w-xl text-xs leading-relaxed text-muted">
-          实际利率 · 美元 · 通胀预期 · 风险偏好 · 央行购金（低频）。近实时与日频分层展示。
+          实际利率 · 美元 · 通胀预期 · 联邦基金利率 · 风险偏好 · 央行购金（低频）。近实时与日频分层展示。
         </p>
       </header>
 
@@ -50,9 +50,9 @@ export function GoldFactorsTool() {
           )}
 
           <footer className="rounded-2xl border border-border-subtle/80 px-4 py-3 text-[11px] leading-relaxed text-subtle">
-            数据源：伦敦金新浪 hf_XAU · 沪金新浪 nf_AU0 · 美元指数新浪 DINIW · 美债名义/实际利率 U.S.
-            Treasury XML · 盈亏平衡由名义−实际推算 · 风险偏好新浪 VIXY · 央行购金 WGC 月报。FRED
-            在部分网络下不稳定，已不再作为主源。
+            数据源：伦敦金新浪 hf_XAU · 沪金新浪 nf_AU0 · 美元指数新浪 DINIW · 联邦基金利率
+            Trading Economics · 美债名义/实际利率 U.S. Treasury XML · 盈亏平衡由名义−实际推算 ·
+            风险偏好新浪 VIXY · 央行购金 WGC 月报。FRED 在部分网络下不稳定，已不再作为主源。
           </footer>
         </div>
       </div>
