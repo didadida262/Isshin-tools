@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>数字人使用场景 · 讯飞为主</title>
+  <style>
+    :root {
+      --bg: #07080d;
+      --panel: #10131c;
+      --line: rgba(255,255,255,.08);
+      --text: #e8eaf2;
+      --mute: #8b90a3;
+      --cyan: #3ee0c5;
+      --violet: #8b7cff;
+      --amber: #f0b429;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { background: var(--bg); color: var(--text); font-family: "SF Pro Display", "PingFang SC", "Hiragino Sans GB", sans-serif; }
+    body { min-height: 100vh; overflow-x: hidden; }
+    .noise {
+      pointer-events: none; position: fixed; inset: 0; opacity: .04; z-index: 0;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.8' numOctaves='4'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+    }
+    .orb {
+      position: fixed; border-radius: 50%; filter: blur(80px); z-index: 0; pointer-events: none;
+    }
+    .orb-a { width: 420px; height: 420px; background: #1a5c55; top: -80px; right: -60px; opacity: .55; }
+    .orb-b { width: 360px; height: 360px; background: #2a2266; bottom: 10%; left: -120px; opacity: .4; }
+    .wrap { position: relative; z-index: 1; max-width: 1120px; margin: 0 auto; padding: 56px 28px 80px; }
+    header { display: grid; grid-template-columns: 1fr auto; gap: 24px; align-items: end; padding-bottom: 40px; border-bottom: 1px solid var(--line); }
+    .kicker { font-size: 11px; letter-spacing: .28em; text-transform: uppercase; color: var(--cyan); margin-bottom: 14px; }
+    h1 { font-size: clamp(36px, 6vw, 64px); font-weight: 620; letter-spacing: -.04em; line-height: .95; }
+    h1 span { color: transparent; background: linear-gradient(120deg, var(--cyan), #fff 45%, var(--violet)); -webkit-background-clip: text; background-clip: text; }
+    .lede { max-width: 420px; color: var(--mute); font-size: 15px; line-height: 1.7; }
+    .lede strong { color: var(--text); font-weight: 560; }
+    .modes { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin: 36px 0 48px; }
+    .mode {
+      padding: 22px 24px; border: 1px solid var(--line); background: linear-gradient(180deg, rgba(255,255,255,.04), transparent);
+      position: relative; overflow: hidden;
+    }
+    .mode::after {
+      content: ""; position: absolute; inset: auto -20% -40% 40%; height: 140px;
+      background: radial-gradient(circle, rgba(62,224,197,.18), transparent 70%);
+    }
+    .mode.b::after { background: radial-gradient(circle, rgba(139,124,255,.2), transparent 70%); }
+    .tag { font-size: 11px; letter-spacing: .16em; color: var(--cyan); margin-bottom: 8px; }
+    .mode.b .tag { color: var(--violet); }
+    .mode h2 { font-size: 22px; margin-bottom: 8px; }
+    .mode p { color: var(--mute); font-size: 13px; line-height: 1.65; }
+    .pipe {
+      display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 44px; color: var(--mute); font-size: 12px;
+    }
+    .pipe b { color: var(--text); font-weight: 560; padding: 6px 10px; border: 1px solid var(--line); background: var(--panel); }
+    .pipe i { font-style: normal; opacity: .4; }
+    h3.sec { font-size: 13px; letter-spacing: .2em; color: var(--mute); margin-bottom: 16px; font-weight: 500; }
+    .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+    .card {
+      min-height: 168px; padding: 18px 16px 16px; background: var(--panel); border: 1px solid var(--line);
+      display: flex; flex-direction: column; gap: 8px; transition: transform .25s ease, border-color .25s ease;
+    }
+    .card:hover { transform: translateY(-4px); border-color: rgba(62,224,197,.35); }
+    .card .no { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; color: var(--cyan); }
+    .card h4 { font-size: 16px; font-weight: 600; }
+    .card p { font-size: 12.5px; color: var(--mute); line-height: 1.6; flex: 1; }
+    .chip { align-self: flex-start; font-size: 10px; letter-spacing: .08em; padding: 3px 8px; border: 1px solid var(--line); color: #c9ccd8; }
+    .chip.live { color: var(--amber); border-color: rgba(240,180,41,.3); }
+    .split { display: grid; grid-template-columns: 1.1fr .9fr; gap: 14px; margin-top: 48px; }
+    .box { padding: 24px; border: 1px solid var(--line); background: rgba(16,19,28,.8); }
+    .box h3 { font-size: 18px; margin-bottom: 16px; }
+    .row { display: grid; grid-template-columns: 88px 1fr; gap: 10px; padding: 10px 0; border-top: 1px solid var(--line); font-size: 13px; }
+    .row:first-of-type { border-top: 0; }
+    .row em { font-style: normal; color: var(--mute); }
+    .call { display: flex; gap: 0; margin-top: 12px; font-size: 12px; }
+    .call span {
+      flex: 1; text-align: center; padding: 12px 6px; border: 1px solid var(--line); border-right: 0; background: #0c0f16;
+    }
+    .call span:last-child { border-right: 1px solid var(--line); }
+    .call b { display: block; color: var(--cyan); font-weight: 560; margin-bottom: 4px; }
+    footer { margin-top: 48px; padding-top: 20px; border-top: 1px solid var(--line); color: var(--mute); font-size: 12px; display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+    footer a { color: #c5c9d8; text-decoration: none; border-bottom: 1px solid rgba(255,255,255,.15); }
+    @media (max-width: 900px) {
+      header, .modes, .grid, .split { grid-template-columns: 1fr 1fr; }
+      .grid { grid-template-columns: 1fr 1fr; }
+    }
+    @media (max-width: 640px) {
+      header, .modes, .grid, .split { grid-template-columns: 1fr; }
+      .call { flex-direction: column; }
+      .call span { border-right: 1px solid var(--line); border-bottom: 0; }
+      .call span:last-child { border-bottom: 1px solid var(--line); }
+    }
+  </style>
+</head>
+<body>
+  <div class="noise"></div>
+  <div class="orb orb-a"></div>
+  <div class="orb orb-b"></div>
+  <div class="wrap">
+    <header>
+      <div>
+        <div class="kicker">iFLYTEK · Digital Human</div>
+        <h1>数字人怎么用<br /><span>八个场景就够了</span></h1>
+      </div>
+      <p class="lede">底座同一套：听 → 懂 → 说 → 驱动形象。行业差异只换 <strong>语义、渲染、语料</strong>。形象音色平台有库；业务知识客户自己备。</p>
+    </header>
+
+    <div class="modes">
+      <article class="mode">
+        <div class="tag">TYPE A</div>
+        <h2>播报</h2>
+        <p>给稿件，数字人出镜念。新闻、课件、宣传片。讯飞智作 / 腾讯播报 / 阿里视频合成 / 商汤如影。</p>
+      </article>
+      <article class="mode b">
+        <div class="tag">TYPE B</div>
+        <h2>交互</h2>
+        <p>用户开口，实时作答。客服、导览、大厅。讯飞交互 SDK / 腾讯交互服务 / 阿里互动数字人（对话另接）。</p>
+      </article>
+    </div>
+
+    <div class="pipe">
+      <b>ASR</b><i>→</i><b>FAQ / 知识库 / LLM / 业务 API</b><i>→</i><b>TTS</b><i>→</i><b>口型动作</b><i>→</i><b>成片 · 推流 · 一体机</b>
+    </div>
+
+    <h3 class="sec">SCENES</h3>
+    <section class="grid">
+      <article class="card">
+        <div class="no">01</div>
+        <h4>媒体主播</h4>
+        <p>文稿进、成片出。突发新闻、多语种分发。新华社等已接讯飞。</p>
+        <span class="chip">播报</span>
+      </article>
+      <article class="card">
+        <div class="no">02</div>
+        <h4>金融客服</h4>
+        <p>App / 网点大屏 7×24 咨询。FAQ + 办理接口，大模型只兜底。上海银行、桂林银行。</p>
+        <span class="chip live">交互</span>
+      </article>
+      <article class="card">
+        <div class="no">03</div>
+        <h4>文旅导游</h4>
+        <p>景区 IP + 导览问答。路线、票务、多语种方言。一体机 / AR / 手机。</p>
+        <span class="chip live">混合</span>
+      </article>
+      <article class="card">
+        <div class="no">04</div>
+        <h4>政务助理</h4>
+        <p>政策咨询、材料清单。答案必须可引用原文，私有化常见。</p>
+        <span class="chip live">交互</span>
+      </article>
+      <article class="card">
+        <div class="no">05</div>
+        <h4>虚拟教师</h4>
+        <p>PPT 出课；线上课补问答。讲义题库校方提供。</p>
+        <span class="chip">播报为主</span>
+      </article>
+      <article class="card">
+        <div class="no">06</div>
+        <h4>展厅大屏</h4>
+        <p>驾驶舱从「只能看」到「可以问」。意图理解后下发切屏、查数。</p>
+        <span class="chip live">交互</span>
+      </article>
+      <article class="card">
+        <div class="no">07</div>
+        <h4>赛事迎宾</h4>
+        <p>展会现场问答。多语种短周期知识库，活动结束即下线。</p>
+        <span class="chip live">交互</span>
+      </article>
+      <article class="card">
+        <div class="no">08</div>
+        <h4>电商直播</h4>
+        <p>虚拟主播念话术、回弹幕。讯飞直播机；阿里品牌智能直播间。</p>
+        <span class="chip">推流</span>
+      </article>
+    </section>
+
+    <div class="split">
+      <div class="box">
+        <h3>谁准备内容</h3>
+        <div class="row"><em>平台给</em><span>形象库、行业音色、驱动引擎、通用闲聊</span></div>
+        <div class="row"><em>客户给</em><span>FAQ、文档、课件、商品库、办理/数据接口</span></div>
+        <div class="row"><em>才定制</em><span>品牌分身、本人声音、景区/活动 IP</span></div>
+      </div>
+      <div class="box">
+        <h3>怎么调用</h3>
+        <p style="color:var(--mute);font-size:13px;line-height:1.6;margin-bottom:8px;">先开会话拿视频流，再驱动，用完关闭。腾讯、阿里同构，只是接口名不同。</p>
+        <div class="call">
+          <span><b>start</b>拿 stream</span>
+          <span><b>ctrl</b>文本/音频</span>
+          <span><b>ping</b>保活</span>
+          <span><b>stop</b>放并发</span>
+        </div>
+      </div>
+    </div>
+
+    <footer>
+      <span>以讯飞为主 · 对照腾讯云 / 阿里云 / 商汤 · 2026-09</span>
+      <span>
+        <a href="https://www.xfyun.cn/services/VirtualHumans" target="_blank" rel="noreferrer">讯飞产品</a>
+        &nbsp;·&nbsp;
+        <a href="https://www.xfyun.cn/doc/tts/virtual_human/API.html" target="_blank" rel="noreferrer">API</a>
+        &nbsp;·&nbsp;
+        <a href="https://cloud.tencent.cn/product/ivh" target="_blank" rel="noreferrer">腾讯</a>
+        &nbsp;·&nbsp;
+        <a href="https://help.aliyun.com/zh/avatar/product-overview/" target="_blank" rel="noreferrer">阿里</a>
+      </span>
+    </footer>
+  </div>
+</body>
+</html>
