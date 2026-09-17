@@ -88,7 +88,7 @@ export function HanddrawStyleTool() {
             className="inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-xl border border-border bg-surface px-3 text-[11px] font-medium text-foreground transition-colors hover:border-muted hover:bg-surface-hover"
           >
             <FontAwesomeIcon icon={faPenNib} className="h-3 w-3" />
-            生成提示词
+            检索提示词
           </button>
         </div>
         {matched && (
