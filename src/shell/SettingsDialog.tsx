@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import { AnimatePresence, motion } from 'framer-motion'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
 import {
+  faDownload,
   faFloppyDisk,
   faFlask,
   faSpinner,
@@ -14,7 +15,9 @@ import {
   generateAgnesImage,
   imageSrcFromResult,
 } from './settings/agnesApi'
+import { downloadAgnesImage } from './settings/downloadImage'
 import { loadAgnesSettings, saveAgnesSettings } from './settings/agnesStore'
+import { BrushLoading } from './settings/BrushLoading'
 import {
   AGNES_IMAGE_MODELS,
   DEFAULT_AGNES_IMAGE_MODEL,
@@ -41,13 +44,14 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
   const [testing, setTesting] = useState(false)
   const [previewSrc, setPreviewSrc] = useState<string | null>(null)
   const [testError, setTestError] = useState<string | null>(null)
+  const [downloading, setDownloading] = useState(false)
 
   useEffect(() => {
     if (!open) return
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         if (promptOpen) {
-          setPromptOpen(false)
+          if (!testing) setPromptOpen(false)
           return
         }
         onClose()
@@ -60,7 +64,7 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
       window.removeEventListener('keydown', onKey)
       document.body.style.overflow = prev
     }
-  }, [open, onClose, promptOpen])
+  }, [open, onClose, promptOpen, testing])
 
   useEffect(() => {
     if (!open) return
@@ -85,8 +89,23 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
       setTesting(false)
       setPreviewSrc(null)
       setTestError(null)
+      setDownloading(false)
     }
   }, [open])
+
+  const handleDownload = async () => {
+    if (!previewSrc || downloading) return
+    setDownloading(true)
+    try {
+      const path = await downloadAgnesImage(previewSrc)
+      if (path) toast('已保存图片', 'success')
+    } catch (err) {
+      const msg = agnesErrorMessage(err)
+      if (!msg.includes('取消')) toast(msg, 'danger')
+    } finally {
+      setDownloading(false)
+    }
+  }
 
   const handleSave = async () => {
     setSaving(true)
@@ -146,7 +165,7 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
     <AnimatePresence>
       {open && (
         <motion.div
-          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          className="fixed inset-0 z-50 flex items-center justify-center p-5 md:p-8"
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
@@ -166,113 +185,118 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 8, scale: 0.98 }}
             transition={{ duration: 0.18, ease: 'easeOut' }}
-            className="relative z-10 max-h-[min(88vh,720px)] w-full max-w-lg overflow-y-auto rounded-2xl border border-border bg-surface p-5 shadow-xl"
+            className="relative z-10 flex h-[min(90vh,760px)] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border border-border bg-surface p-6 shadow-xl md:p-7"
           >
-            <div className="flex items-start justify-between gap-3">
-              <h2
-                id="settings-dialog-title"
-                className="font-display text-base font-semibold tracking-tight text-foreground"
-              >
-                设置
-              </h2>
+            <div className="flex shrink-0 items-start justify-between gap-3">
+              <div>
+                <h2
+                  id="settings-dialog-title"
+                  className="font-display text-lg font-semibold tracking-tight text-foreground"
+                >
+                  设置
+                </h2>
+                <p className="mt-1 text-xs text-muted">应用级配置，凭证仅保存在本机</p>
+              </div>
               <button
                 type="button"
                 onClick={onClose}
-                className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-subtle transition-colors hover:bg-surface-hover hover:text-foreground"
+                className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-subtle transition-colors hover:bg-surface-hover hover:text-foreground"
                 aria-label="关闭弹框"
               >
                 <FontAwesomeIcon icon={faXmark} className="h-3.5 w-3.5" />
               </button>
             </div>
 
-            <section className="mt-5 rounded-2xl border border-border-subtle bg-background/40 p-4">
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <h3 className="text-sm font-medium text-foreground">文生图</h3>
-                  <p className="mt-1 text-[11px] leading-relaxed text-muted">
-                    配置 Agnes API Key，选择图像模型后可测试文生图。密钥仅保存在本机。
-                  </p>
-                </div>
-                <a
-                  href="https://www.agnes-ai.cn/zh-Hans/docs/agnes-image-25-flash"
-                  target="_blank"
-                  rel="noreferrer"
-                  className="shrink-0 text-[11px] text-accent hover:underline"
-                >
-                  文档
-                </a>
-              </div>
-
-              {loading ? (
-                <p className="mt-4 text-xs text-subtle">加载设置中…</p>
-              ) : (
-                <div className="mt-4 space-y-3">
-                  <label className="block">
-                    <span className="text-[11px] font-medium uppercase tracking-[0.12em] text-subtle">
-                      API Key
-                    </span>
-                    <input
-                      type="password"
-                      value={apiKey}
-                      onChange={(e) => setApiKey(e.target.value)}
-                      placeholder="sk-..."
-                      autoComplete="off"
-                      spellCheck={false}
-                      className="mt-1.5 h-9 w-full rounded-xl border border-border bg-background px-3 text-xs text-foreground outline-none transition-colors placeholder:text-subtle focus:border-muted"
-                    />
-                  </label>
-
-                  <label className="block">
-                    <span className="text-[11px] font-medium uppercase tracking-[0.12em] text-subtle">
-                      图像模型
-                    </span>
-                    <select
-                      value={imageModel}
-                      onChange={(e) => {
-                        const v = e.target.value
-                        if (isAgnesImageModelId(v)) setImageModel(v)
-                      }}
-                      className="mt-1.5 h-9 w-full rounded-xl border border-border bg-background px-3 text-xs text-foreground outline-none transition-colors focus:border-muted"
-                    >
-                      {AGNES_IMAGE_MODELS.map((m) => (
-                        <option key={m.id} value={m.id}>
-                          {m.label}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-
-                  <div className="flex flex-wrap gap-2 pt-1">
-                    <button
-                      type="button"
-                      onClick={() => void handleSave()}
-                      disabled={saving}
-                      className="inline-flex h-8 items-center gap-2 rounded-xl border border-border px-3 text-xs text-muted transition-colors hover:border-muted hover:bg-surface-hover hover:text-foreground disabled:opacity-50"
-                    >
-                      <FontAwesomeIcon
-                        icon={saving ? faSpinner : faFloppyDisk}
-                        className={`h-3 w-3 ${saving ? 'animate-spin' : ''}`}
-                      />
-                      保存
-                    </button>
-                    <button
-                      type="button"
-                      onClick={openTestPrompt}
-                      className="inline-flex h-8 items-center gap-2 rounded-xl bg-accent px-3 text-xs font-medium text-accent-fg transition-opacity hover:opacity-90"
-                    >
-                      <FontAwesomeIcon icon={faFlask} className="h-3 w-3" />
-                      测试
-                    </button>
+            <div className="mt-5 min-h-0 flex-1 overflow-y-auto pr-0.5">
+              <section className="rounded-2xl border border-border-subtle bg-background/40 p-5 md:p-6">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <h3 className="text-sm font-medium text-foreground">文生图</h3>
+                    <p className="mt-1.5 max-w-xl text-xs leading-relaxed text-muted">
+                      配置 Agnes API Key，选择图像模型后可测试文生图。接口文档与参数说明见右侧链接。
+                    </p>
                   </div>
+                  <a
+                    href="https://www.agnes-ai.cn/zh-Hans/docs/agnes-image-25-flash"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="shrink-0 text-xs text-accent hover:underline"
+                  >
+                    文档
+                  </a>
                 </div>
-              )}
-            </section>
+
+                {loading ? (
+                  <p className="mt-6 text-xs text-subtle">加载设置中…</p>
+                ) : (
+                  <div className="mt-6 grid gap-4 sm:grid-cols-2">
+                    <label className="block sm:col-span-2">
+                      <span className="text-[11px] font-medium uppercase tracking-[0.12em] text-subtle">
+                        API Key
+                      </span>
+                      <input
+                        type="password"
+                        value={apiKey}
+                        onChange={(e) => setApiKey(e.target.value)}
+                        placeholder="sk-..."
+                        autoComplete="off"
+                        spellCheck={false}
+                        className="mt-1.5 h-10 w-full rounded-xl border border-border bg-background px-3.5 text-sm text-foreground outline-none transition-colors placeholder:text-subtle focus:border-muted"
+                      />
+                    </label>
+
+                    <label className="block sm:col-span-2">
+                      <span className="text-[11px] font-medium uppercase tracking-[0.12em] text-subtle">
+                        图像模型
+                      </span>
+                      <select
+                        value={imageModel}
+                        onChange={(e) => {
+                          const v = e.target.value
+                          if (isAgnesImageModelId(v)) setImageModel(v)
+                        }}
+                        className="mt-1.5 h-10 w-full rounded-xl border border-border bg-background px-3.5 text-sm text-foreground outline-none transition-colors focus:border-muted"
+                      >
+                        {AGNES_IMAGE_MODELS.map((m) => (
+                          <option key={m.id} value={m.id}>
+                            {m.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+
+                    <div className="flex flex-wrap gap-2 pt-1 sm:col-span-2">
+                      <button
+                        type="button"
+                        onClick={() => void handleSave()}
+                        disabled={saving}
+                        className="inline-flex h-9 items-center gap-2 rounded-xl border border-border px-3.5 text-xs text-muted transition-colors hover:border-muted hover:bg-surface-hover hover:text-foreground disabled:opacity-50"
+                      >
+                        <FontAwesomeIcon
+                          icon={saving ? faSpinner : faFloppyDisk}
+                          className={`h-3 w-3 ${saving ? 'animate-spin' : ''}`}
+                        />
+                        保存
+                      </button>
+                      <button
+                        type="button"
+                        onClick={openTestPrompt}
+                        className="inline-flex h-9 items-center gap-2 rounded-xl bg-accent px-3.5 text-xs font-medium text-accent-fg transition-opacity hover:opacity-90"
+                      >
+                        <FontAwesomeIcon icon={faFlask} className="h-3 w-3" />
+                        测试
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </section>
+            </div>
           </motion.div>
 
           <AnimatePresence>
             {promptOpen && (
               <motion.div
-                className="fixed inset-0 z-[60] flex items-center justify-center p-4"
+                className="fixed inset-0 z-[60] flex items-center justify-center p-5 md:p-8"
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
@@ -281,7 +305,7 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
                 <button
                   type="button"
                   aria-label="关闭提示词弹框"
-                  className="absolute inset-0 bg-black/45"
+                  className="absolute inset-0 bg-black/50"
                   onClick={() => !testing && setPromptOpen(false)}
                 />
                 <motion.div
@@ -292,17 +316,17 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
                   animate={{ opacity: 1, y: 0, scale: 1 }}
                   exit={{ opacity: 0, y: 6, scale: 0.98 }}
                   transition={{ duration: 0.16, ease: 'easeOut' }}
-                  className="relative z-10 flex max-h-[min(88vh,640px)] w-full max-w-md flex-col overflow-hidden rounded-2xl border border-border bg-surface p-5 shadow-xl"
+                  className="relative z-10 flex max-h-[min(90vh,720px)] w-full max-w-xl flex-col overflow-hidden rounded-2xl border border-border bg-surface p-6 shadow-xl"
                 >
                   <div className="flex shrink-0 items-start justify-between gap-3">
                     <div>
                       <h3
                         id="agnes-prompt-title"
-                        className="font-display text-sm font-semibold text-foreground"
+                        className="font-display text-base font-semibold text-foreground"
                       >
                         输入提示词
                       </h3>
-                      <p className="mt-1 text-[11px] text-muted">
+                      <p className="mt-1 text-xs text-muted">
                         使用 {imageModel} 生成测试图
                       </p>
                     </div>
@@ -310,7 +334,7 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
                       type="button"
                       disabled={testing}
                       onClick={() => setPromptOpen(false)}
-                      className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-subtle transition-colors hover:bg-surface-hover hover:text-foreground disabled:opacity-50"
+                      className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-subtle transition-colors hover:bg-surface-hover hover:text-foreground disabled:opacity-50"
                       aria-label="关闭"
                     >
                       <FontAwesomeIcon icon={faXmark} className="h-3.5 w-3.5" />
@@ -320,35 +344,68 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
                   <textarea
                     value={prompt}
                     onChange={(e) => setPrompt(e.target.value)}
-                    rows={4}
+                    rows={5}
                     disabled={testing}
                     placeholder="例：日出时分薄雾峡谷上方的发光浮空城市，电影级写实风格"
-                    className="mt-4 w-full resize-none rounded-xl border border-border bg-background px-3 py-2.5 text-xs leading-relaxed text-foreground outline-none transition-colors placeholder:text-subtle focus:border-muted disabled:opacity-60"
+                    className="mt-4 w-full resize-none rounded-xl border border-border bg-background px-3.5 py-3 text-sm leading-relaxed text-foreground outline-none transition-colors placeholder:text-subtle focus:border-muted disabled:opacity-60"
                   />
 
-                  {testError && (
+                  {testError && !testing && (
                     <p className="mt-2 text-xs text-danger" role="alert">
                       {testError}
                     </p>
                   )}
 
-                  {previewSrc && (
-                    <div className="mt-3 min-h-0 flex-1 overflow-hidden rounded-xl border border-border-subtle bg-background/50">
-                      <img
-                        src={previewSrc}
-                        alt="Agnes 生成结果"
-                        className="max-h-56 w-full object-contain"
-                        referrerPolicy="no-referrer"
-                      />
-                    </div>
-                  )}
+                  <AnimatePresence mode="wait">
+                    {testing ? (
+                      <motion.div
+                        key="brush-loading"
+                        initial={{ opacity: 0, y: 6 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: -4 }}
+                        transition={{ duration: 0.2 }}
+                        className="mt-4"
+                      >
+                        <BrushLoading />
+                      </motion.div>
+                    ) : previewSrc ? (
+                      <motion.div
+                        key="preview"
+                        initial={{ opacity: 0, y: 6 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0 }}
+                        transition={{ duration: 0.2 }}
+                        className="group relative mt-4 overflow-hidden rounded-xl border border-border-subtle bg-background/50"
+                      >
+                        <img
+                          src={previewSrc}
+                          alt="Agnes 生成结果"
+                          className="max-h-72 w-full object-contain"
+                          referrerPolicy="no-referrer"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => void handleDownload()}
+                          disabled={downloading}
+                          className="absolute top-2.5 right-2.5 inline-flex h-8 items-center gap-1.5 rounded-lg border border-border/80 bg-surface/90 px-2.5 text-[11px] font-medium text-foreground shadow-sm backdrop-blur-sm transition-colors hover:bg-surface-hover disabled:opacity-60"
+                          aria-label="下载图片"
+                        >
+                          <FontAwesomeIcon
+                            icon={downloading ? faSpinner : faDownload}
+                            className={`h-3 w-3 ${downloading ? 'animate-spin' : ''}`}
+                          />
+                          {downloading ? '保存中' : '下载'}
+                        </button>
+                      </motion.div>
+                    ) : null}
+                  </AnimatePresence>
 
-                  <div className="mt-4 flex shrink-0 justify-end gap-2">
+                  <div className="mt-5 flex shrink-0 justify-end gap-2">
                     <button
                       type="button"
                       disabled={testing}
                       onClick={() => setPromptOpen(false)}
-                      className="inline-flex h-8 items-center rounded-xl border border-border px-3 text-xs text-muted transition-colors hover:bg-surface-hover hover:text-foreground disabled:opacity-50"
+                      className="inline-flex h-9 items-center rounded-xl border border-border px-3.5 text-xs text-muted transition-colors hover:bg-surface-hover hover:text-foreground disabled:opacity-50"
                     >
                       取消
                     </button>
@@ -356,15 +413,9 @@ export function SettingsDialog({ open, onClose }: SettingsDialogProps) {
                       type="button"
                       disabled={testing}
                       onClick={() => void runTest()}
-                      className="inline-flex h-8 items-center gap-2 rounded-xl bg-accent px-3 text-xs font-medium text-accent-fg transition-opacity hover:opacity-90 disabled:opacity-60"
+                      className="inline-flex h-9 items-center gap-2 rounded-xl bg-accent px-3.5 text-xs font-medium text-accent-fg transition-opacity hover:opacity-90 disabled:opacity-60"
                     >
-                      {testing && (
-                        <FontAwesomeIcon
-                          icon={faSpinner}
-                          className="h-3 w-3 animate-spin"
-                        />
-                      )}
-                      {testing ? '生成中…' : '确定'}
+                      {testing ? '绘制中…' : '确定'}
                     </button>
                   </div>
                 </motion.div>

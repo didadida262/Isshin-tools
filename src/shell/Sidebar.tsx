@@ -2,9 +2,9 @@ import { useState } from 'react'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
 import { faGear } from '@fortawesome/free-solid-svg-icons'
 import { motion } from 'framer-motion'
-import logoIsshin from '@/assets/logo_isshin_agent.png'
 import { NotificationBell } from '@/tasks'
 import { SettingsDialog } from './SettingsDialog'
+import { SidebarLogo } from './SidebarLogo'
 import { toolsRegistry, type ToolDefinition } from './toolsRegistry'
 
 interface SidebarProps {
@@ -18,11 +18,7 @@ export function Sidebar({ activeToolId, onSelect }: SidebarProps) {
   return (
     <aside className="flex h-full w-60 shrink-0 flex-col border-r border-border-subtle bg-surface/80 backdrop-blur-md">
       <div className="flex items-center gap-3 border-b border-border-subtle px-3 py-4">
-        <img
-          src={logoIsshin}
-          alt="Isshin"
-          className="h-14 w-14 shrink-0 rounded-xl object-cover ring-1 ring-border/50"
-        />
+        <SidebarLogo />
         <div className="min-w-0">
           <p className="font-display text-base font-semibold leading-tight tracking-tight text-foreground">
             Isshin Tools
@@ -44,24 +40,28 @@ export function Sidebar({ activeToolId, onSelect }: SidebarProps) {
         ))}
       </nav>
 
-      <div className="flex items-center justify-between gap-2 border-t border-border-subtle px-4 py-3">
-        <div className="flex min-w-0 items-center gap-1.5">
+      <div className="flex items-center justify-between gap-2 border-t border-border-subtle px-3 py-2.5">
+        <p className="min-w-0 truncate px-1 text-[11px] text-subtle">
+          v{__APP_VERSION__} · {toolsRegistry.length} tools
+        </p>
+        <div
+          className="flex shrink-0 items-center gap-0.5 rounded-xl border border-border-subtle bg-background/50 p-0.5"
+          role="group"
+          aria-label="系统"
+        >
           <button
             type="button"
             onClick={() => setSettingsOpen(true)}
             aria-label="设置"
             aria-expanded={settingsOpen}
-            className={`inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-subtle transition-colors duration-200 hover:bg-surface-hover hover:text-foreground ${
+            className={`inline-flex h-7 w-7 items-center justify-center rounded-lg text-subtle transition-colors duration-200 hover:bg-surface-hover hover:text-foreground ${
               settingsOpen ? 'bg-surface-hover text-foreground' : ''
             }`}
           >
             <FontAwesomeIcon icon={faGear} className="h-3.5 w-3.5" />
           </button>
-          <p className="truncate text-[11px] text-subtle">
-            v{__APP_VERSION__} · {toolsRegistry.length} tools
-          </p>
+          <NotificationBell />
         </div>
-        <NotificationBell />
       </div>
 
       <SettingsDialog

@@ -258,3 +258,185 @@ body {
   content-visibility: auto;
   contain-intrinsic-size: auto 52px;
 }
+
+/* Agnes test: paintbrush loading */
+@keyframes brush-ink-draw {
+  0% {
+    stroke-dashoffset: 420;
+  }
+  55% {
+    stroke-dashoffset: 0;
+  }
+  100% {
+    stroke-dashoffset: 0;
+  }
+}
+
+@keyframes brush-ink-fade {
+  0%,
+  50% {
+    opacity: 0.12;
+  }
+  70%,
+  100% {
+    opacity: 0.04;
+  }
+}
+
+@keyframes brush-bristle-flick {
+  0%,
+  100% {
+    transform: translateY(0) scaleY(1);
+  }
+  40% {
+    transform: translateY(1px) scaleY(1.08);
+  }
+  70% {
+    transform: translateY(-0.5px) scaleY(0.94);
+  }
+}
+
+@keyframes brush-drip {
+  0%,
+  60% {
+    transform: translateY(0) scale(1);
+    opacity: 0.9;
+  }
+  80% {
+    transform: translateY(6px) scale(0.7);
+    opacity: 0.35;
+  }
+  100% {
+    transform: translateY(10px) scale(0.4);
+    opacity: 0;
+  }
+}
+
+@keyframes brush-splat-pop {
+  0%,
+  35% {
+    transform: scale(0);
+    opacity: 0;
+  }
+  50% {
+    transform: scale(1.35);
+    opacity: 0.95;
+  }
+  75% {
+    transform: scale(1);
+    opacity: 0.55;
+  }
+  100% {
+    transform: scale(0.6);
+    opacity: 0;
+  }
+}
+
+@keyframes brush-glow-breathe {
+  0%,
+  100% {
+    opacity: 0.35;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.7;
+    transform: scale(1.04);
+  }
+}
+
+.brush-loading-glow {
+  background:
+    radial-gradient(ellipse 55% 40% at 50% 42%, rgba(240, 215, 140, 0.16), transparent 70%),
+    radial-gradient(ellipse 40% 30% at 70% 70%, rgba(201, 162, 39, 0.08), transparent 65%);
+  animation: brush-glow-breathe 2.8s ease-in-out infinite;
+}
+
+.brush-loading-grid {
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.04) 1px, transparent 1px);
+  background-size: 24px 24px;
+  mask-image: radial-gradient(ellipse 70% 60% at 50% 45%, #000 20%, transparent 75%);
+}
+
+.brush-ink-stroke {
+  stroke-dasharray: 420;
+  stroke-dashoffset: 420;
+  animation: brush-ink-draw 2.8s cubic-bezier(0.4, 0.05, 0.2, 1) infinite;
+}
+
+.brush-ink-wash {
+  stroke-dasharray: 420;
+  stroke-dashoffset: 420;
+  animation:
+    brush-ink-draw 2.8s cubic-bezier(0.4, 0.05, 0.2, 1) infinite,
+    brush-ink-fade 2.8s ease-in-out infinite;
+}
+
+.brush-bristle {
+  transform-origin: 16px 66px;
+  animation: brush-bristle-flick 0.45s ease-in-out infinite;
+}
+
+.brush-drip {
+  transform-origin: 16px 78px;
+  animation: brush-drip 2.8s ease-in infinite;
+}
+
+.brush-splat {
+  transform-origin: center;
+  opacity: 0;
+}
+
+.brush-splat-a {
+  animation: brush-splat-pop 2.8s ease-out infinite;
+  animation-delay: 0.55s;
+}
+
+.brush-splat-b {
+  animation: brush-splat-pop 2.8s ease-out infinite;
+  animation-delay: 1.15s;
+}
+
+.brush-splat-c {
+  animation: brush-splat-pop 2.8s ease-out infinite;
+  animation-delay: 1.75s;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .brush-loading-glow,
+  .brush-ink-stroke,
+  .brush-ink-wash,
+  .brush-bristle,
+  .brush-drip,
+  .brush-splat-a,
+  .brush-splat-b,
+  .brush-splat-c {
+    animation: none;
+  }
+
+  .brush-ink-stroke,
+  .brush-ink-wash {
+    stroke-dashoffset: 0;
+  }
+
+  .brush-splat {
+    opacity: 0.5;
+  }
+}
+
+/* Sidebar logo 3D hover */
+.logo-3d-scene {
+  transform-style: preserve-3d;
+}
+
+.logo-3d-card {
+  will-change: transform;
+  cursor: pointer;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .logo-3d-card {
+    transform: none !important;
+  }
+}

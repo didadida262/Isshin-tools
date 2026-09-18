@@ -8,6 +8,7 @@
     "dialog:default",
     "fs:default",
     "fs:allow-write-text-file",
+    "fs:allow-write-file",
     "fs:allow-mkdir",
     "fs:allow-read-file",
     "fs:allow-exists",
@@ -52,7 +53,8 @@
         { "url": "https://gold.org/**" },
         { "url": "https://tradingeconomics.com/**" },
         { "url": "https://www.tradingeconomics.com/**" },
-        { "url": "https://api.agnes-ai.cn/**" }
+        { "url": "https://api.agnes-ai.cn/**" },
+        { "url": "https://storage.googleapis.com/**" }
       ]
     },
     "opener:default"
