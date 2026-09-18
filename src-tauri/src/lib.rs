@@ -92,6 +92,7 @@ pub fn run() {
             netease_weapi,
             netease_qr_url,
             http_fetch::http_get_text,
+            http_fetch::http_post_json,
             bilibili::bilibili_search,
             bilibili::bilibili_download,
             bilibili::bilibili_list_downloaded,

@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "allow-http-post-json"
+description = "Allow desktop HTTP JSON POST bridge for Agnes and similar APIs"
+commands.allow = ["http_post_json"]

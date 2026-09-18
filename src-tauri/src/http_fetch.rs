@@ -19,6 +19,7 @@ const ALLOWED_HOSTS: &[&str] = &[
     "tradingeconomics.com",
     "www.tradingeconomics.com",
     "rank.cn-healthcare.com",
+    "api.agnes-ai.cn",
 ];
 
 fn host_allowed(host: &str) -> bool {
@@ -49,10 +50,10 @@ fn extract_host(url: &str) -> Result<String, String> {
     Ok(host.to_string())
 }
 
-fn build_client() -> Result<reqwest::Client, String> {
+fn build_client(timeout_secs: u64) -> Result<reqwest::Client, String> {
     reqwest::Client::builder()
         .http1_only()
-        .timeout(Duration::from_secs(30))
+        .timeout(Duration::from_secs(timeout_secs))
         .connect_timeout(Duration::from_secs(15))
         .pool_max_idle_per_host(0)
         .build()
@@ -67,7 +68,7 @@ pub async fn http_get_text(url: String) -> Result<String, String> {
         return Err(format!("host 未授权: {host}"));
     }
 
-    let client = build_client()?;
+    let client = build_client(30)?;
     let mut headers = HeaderMap::new();
     headers.insert(USER_AGENT, HeaderValue::from_static(USER_AGENT_VALUE));
     headers.insert(
@@ -124,6 +125,58 @@ pub async fn http_get_text(url: String) -> Result<String, String> {
     }
 
     Ok(body)
+}
+
+/// Desktop-side JSON POST (e.g. Agnes image generation). Long timeout for generative APIs.
+#[tauri::command]
+pub async fn http_post_json(
+    url: String,
+    body: String,
+    authorization: Option<String>,
+) -> Result<String, String> {
+    let host = extract_host(&url)?;
+    if !host_allowed(&host) {
+        return Err(format!("host 未授权: {host}"));
+    }
+
+    let client = build_client(300)?;
+    let mut headers = HeaderMap::new();
+    headers.insert(USER_AGENT, HeaderValue::from_static(USER_AGENT_VALUE));
+    headers.insert(ACCEPT, HeaderValue::from_static("application/json"));
+    headers.insert(
+        reqwest::header::CONTENT_TYPE,
+        HeaderValue::from_static("application/json"),
+    );
+    if let Some(auth) = authorization {
+        let value = auth.trim();
+        if !value.is_empty() {
+            headers.insert(
+                reqwest::header::AUTHORIZATION,
+                HeaderValue::from_str(value).map_err(|e| format!("Authorization: {e}"))?,
+            );
+        }
+    }
+
+    let response = client
+        .post(&url)
+        .headers(headers)
+        .body(body)
+        .send()
+        .await
+        .map_err(|e| format!("网络错误: {e}"))?;
+
+    let status = response.status();
+    let text = response
+        .text()
+        .await
+        .map_err(|e| format!("读取响应失败: {e}"))?;
+
+    if !status.is_success() {
+        let snippet: String = text.chars().take(200).collect();
+        return Err(format!("HTTP {status} · {snippet}"));
+    }
+
+    Ok(text)
 }
 
 #[cfg(test)]
