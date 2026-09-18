@@ -18,6 +18,7 @@ const ALLOWED_HOSTS: &[&str] = &[
     "gold.org",
     "tradingeconomics.com",
     "www.tradingeconomics.com",
+    "rank.cn-healthcare.com",
 ];
 
 fn host_allowed(host: &str) -> bool {
@@ -85,6 +86,12 @@ pub async fn http_get_text(url: String) -> Result<String, String> {
             HeaderValue::from_static("https://quote.eastmoney.com/"),
         );
     }
+    if host.contains("cn-healthcare") {
+        headers.insert(
+            REFERER,
+            HeaderValue::from_static("https://rank.cn-healthcare.com/"),
+        );
+    }
 
     let response = client
         .get(&url)
@@ -104,11 +111,12 @@ pub async fn http_get_text(url: String) -> Result<String, String> {
         return Err(format!("HTTP {status} · {snippet}"));
     }
 
-    // HTML pages scraped intentionally (WGC articles, Trading Economics tables).
+    // HTML pages scraped intentionally (WGC articles, Trading Economics tables, Fudan hospital ranks).
     let allow_html = host.eq_ignore_ascii_case("www.gold.org")
         || host.eq_ignore_ascii_case("gold.org")
         || host.eq_ignore_ascii_case("tradingeconomics.com")
-        || host.eq_ignore_ascii_case("www.tradingeconomics.com");
+        || host.eq_ignore_ascii_case("www.tradingeconomics.com")
+        || host.eq_ignore_ascii_case("rank.cn-healthcare.com");
     if !allow_html
         && (body.trim_start().starts_with("<!DOCTYPE") || body.trim_start().starts_with("<html"))
     {

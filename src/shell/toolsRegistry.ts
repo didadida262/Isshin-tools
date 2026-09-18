@@ -8,6 +8,7 @@ import {
   faMusic,
   faDownload,
   faPalette,
+  faHospital,
 } from '@fortawesome/free-solid-svg-icons'
 import { NeteasePlaylistExportTool } from '@/tools/netease-playlist-export'
 import { GoldFactorsTool } from '@/tools/gold-factors'
@@ -16,6 +17,7 @@ import { BilibiliDownloaderTool } from '@/tools/bilibili-downloader'
 import { DroneTrainingTool } from '@/tools/drone-training'
 import { RcCarTrainingTool } from '@/tools/rc-car-training'
 import { HanddrawStyleTool } from '@/tools/handdraw-style'
+import { HospitalRankingTool } from '@/tools/hospital-ranking'
 
 export interface ToolDefinition {
   id: string
@@ -74,6 +76,13 @@ export const toolsRegistry: ToolDefinition[] = [
     description: '编号 + 主题，生成中英生图提示词',
     icon: faPalette,
     component: HanddrawStyleTool,
+  },
+  {
+    id: 'hospital-ranking',
+    name: '中国大陆医院靠谱榜',
+    description: '复旦大学中国医院排行榜 · 最新年度',
+    icon: faHospital,
+    component: HospitalRankingTool,
   },
 ]
 
